@@ -6,10 +6,11 @@
 // =====================================================================
 import { useState, useEffect } from 'react'
 import { fetchStages, apiFetch, type PipelineStage } from '../lib/api'
-import { Settings as SettingsIcon, Save, Plus, Trash2, GripVertical, Check, Key, Layers } from 'lucide-react'
+import { Settings as SettingsIcon, Save, Plus, Trash2, GripVertical, Check, Key, Layers, Building2 } from 'lucide-react'
 import TokensTab from '../components/TokensTab'
+import AccountsTab from '../components/AccountsTab'
 
-type TabKey = 'tokens' | 'pipeline'
+type TabKey = 'tokens' | 'accounts' | 'pipeline'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<TabKey>('tokens')
@@ -22,10 +23,12 @@ export default function SettingsPage() {
 
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-subtle)', marginBottom: 20 }}>
         <TabButton active={tab === 'tokens'} onClick={() => setTab('tokens')} icon={<Key size={14} />} label="Tokens / Integracoes" />
+        <TabButton active={tab === 'accounts'} onClick={() => setTab('accounts')} icon={<Building2 size={14} />} label="Contas do Painel" />
         <TabButton active={tab === 'pipeline'} onClick={() => setTab('pipeline')} icon={<Layers size={14} />} label="Etapas do Pipeline" />
       </div>
 
       {tab === 'tokens' && <TokensTab />}
+      {tab === 'accounts' && <AccountsTab />}
       {tab === 'pipeline' && <PipelineTab />}
     </div>
   )
