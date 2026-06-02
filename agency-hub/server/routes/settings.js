@@ -92,35 +92,6 @@ export const KNOWN_KEYS = [
       'Remova os tracos (ex: 123-456-7890 vira 1234567890).',
     ],
   },
-
-  // Kiwify
-  {
-    key: 'KIWIFY_CLIENT_ID',
-    label: 'Kiwify Client ID',
-    is_secret: false,
-    group: 'Kiwify',
-    description: 'Client ID da integracao Kiwify (OAuth).',
-    howto: [
-      'Acesse o app Kiwify -> Configuracoes -> API',
-      'Crie aplicacao OAuth e copie o Client ID.',
-    ],
-  },
-  {
-    key: 'KIWIFY_CLIENT_SECRET',
-    label: 'Kiwify Client Secret',
-    is_secret: true,
-    group: 'Kiwify',
-    description: 'Client Secret da mesma aplicacao Kiwify.',
-    howto: ['No mesmo lugar do Client ID, copie o Client Secret.'],
-  },
-  {
-    key: 'KIWIFY_ACCOUNT_ID',
-    label: 'Kiwify Account ID',
-    is_secret: false,
-    group: 'Kiwify',
-    description: 'ID da conta Kiwify (visivel na URL do dashboard).',
-    howto: ['No dashboard Kiwify, observe a URL: dashboard.kiwify.com.br/{ACCOUNT_ID}/...'],
-  },
 ]
 
 const KEY_INDEX = Object.fromEntries(KNOWN_KEYS.map(k => [k.key, k]))
@@ -140,6 +111,27 @@ export function getSetting(key) {
     if (row && row.value && row.value.trim()) return row.value
   } catch {}
   return process.env[key] || null
+}
+
+// Seed one-time: pra cada chave KNOWN_KEYS, se DB nao tem entry E .env tem
+// valor configurado, importa pro DB. Roda no startup do server. Idempotente:
+// nao sobrescreve nada ja preenchido no DB.
+export function seedSettingsFromEnv() {
+  const existing = new Set(db.prepare('SELECT key FROM app_settings').all().map(r => r.key))
+  const insertStmt = db.prepare(`
+    INSERT INTO app_settings (key, value, is_secret, updated_at, updated_by)
+    VALUES (?, ?, ?, datetime('now', '-3 hours'), NULL)
+  `)
+  let imported = 0
+  for (const k of KNOWN_KEYS) {
+    if (existing.has(k.key)) continue
+    const envValue = process.env[k.key]
+    if (envValue && envValue.trim()) {
+      insertStmt.run(k.key, envValue, k.is_secret ? 1 : 0)
+      imported++
+    }
+  }
+  if (imported > 0) console.log(`[settings] seed inicial: ${imported} chaves importadas do .env`)
 }
 
 // GET / — lista todas as chaves conhecidas (com value mascarado se secret).

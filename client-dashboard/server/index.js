@@ -42,9 +42,10 @@ const CORE_EMBED_SECRET = process.env.CORE_EMBED_SECRET || 'dros-core-embed-2026
 
 // Tokens: let porque sao atualizados periodicamente do Hub
 let META_TOKEN = process.env.META_ACCESS_TOKEN
-let KIWIFY_CLIENT_ID = process.env.KIWIFY_CLIENT_ID
-let KIWIFY_CLIENT_SECRET = process.env.KIWIFY_CLIENT_SECRET
-let KIWIFY_ACCOUNT_ID = process.env.KIWIFY_ACCOUNT_ID
+// Kiwify mantido como const local (sem sync no Hub — nao faz parte do painel de performance)
+const KIWIFY_CLIENT_ID = process.env.KIWIFY_CLIENT_ID
+const KIWIFY_CLIENT_SECRET = process.env.KIWIFY_CLIENT_SECRET
+const KIWIFY_ACCOUNT_ID = process.env.KIWIFY_ACCOUNT_ID
 let GOOGLE_ADS_DEVELOPER_TOKEN = process.env.GOOGLE_ADS_DEVELOPER_TOKEN
 let GOOGLE_ADS_CLIENT_ID = process.env.GOOGLE_ADS_CLIENT_ID
 let GOOGLE_ADS_CLIENT_SECRET = process.env.GOOGLE_ADS_CLIENT_SECRET
@@ -66,9 +67,6 @@ async function syncFromHub() {
       const { tokens } = await tokensRes.json()
       // Atualiza apenas se Hub retornou valor (preserva fallback .env)
       if (tokens.META_ACCESS_TOKEN) META_TOKEN = tokens.META_ACCESS_TOKEN
-      if (tokens.KIWIFY_CLIENT_ID) KIWIFY_CLIENT_ID = tokens.KIWIFY_CLIENT_ID
-      if (tokens.KIWIFY_CLIENT_SECRET) KIWIFY_CLIENT_SECRET = tokens.KIWIFY_CLIENT_SECRET
-      if (tokens.KIWIFY_ACCOUNT_ID) KIWIFY_ACCOUNT_ID = tokens.KIWIFY_ACCOUNT_ID
       if (tokens.GOOGLE_ADS_DEVELOPER_TOKEN) GOOGLE_ADS_DEVELOPER_TOKEN = tokens.GOOGLE_ADS_DEVELOPER_TOKEN
       if (tokens.GOOGLE_ADS_CLIENT_ID) GOOGLE_ADS_CLIENT_ID = tokens.GOOGLE_ADS_CLIENT_ID
       if (tokens.GOOGLE_ADS_CLIENT_SECRET) GOOGLE_ADS_CLIENT_SECRET = tokens.GOOGLE_ADS_CLIENT_SECRET

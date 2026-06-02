@@ -21,7 +21,7 @@ import notificationRoutes from './routes/notifications.js'
 import financialRoutes from './routes/financial.js'
 import performanceRoutes, { publicRouter as performancePublicRoutes } from './routes/performance.js'
 import taskTemplateRoutes from './routes/task-templates.js'
-import settingsRoutes from './routes/settings.js'
+import settingsRoutes, { seedSettingsFromEnv } from './routes/settings.js'
 import configRoutes from './routes/config.js'
 import { runDueTemplates } from './services/taskTemplates.js'
 import { authenticate } from './middleware/auth.js'
@@ -312,6 +312,10 @@ app.get('/{*path}', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[Dros Hub API] Running on http://localhost:${PORT}`)
+
+  // One-time: importa tokens do .env pro DB se ainda nao tem (assim aba Tokens
+  // ja aparece preenchida no primeiro acesso)
+  try { seedSettingsFromEnv() } catch (e) { console.error('[settings] seed falhou:', e.message) }
 
   // Server-side timer check — every 1 hora
   // Pergunta "ainda esta produzindo?" a cada 1h de timer rodando
