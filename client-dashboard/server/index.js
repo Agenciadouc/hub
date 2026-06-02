@@ -28,14 +28,72 @@ app.use((req, _res, next) => {
 })
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dros-dashboard-secret-2026'
-const META_TOKEN = process.env.META_ACCESS_TOKEN
-const KIWIFY_CLIENT_ID = process.env.KIWIFY_CLIENT_ID
-const KIWIFY_CLIENT_SECRET = process.env.KIWIFY_CLIENT_SECRET
-const KIWIFY_ACCOUNT_ID = process.env.KIWIFY_ACCOUNT_ID
 const PORT = process.env.PORT || 3004
 
+// =====================================================================
+// Hub integration: /core agora puxa tokens e lista de clientes do Hub.
+// Fallback pro .env mantido pra zero-downtime quando Hub estiver offline.
+//
+// HUB_URL — base do Hub (default localhost:3003 na VPS)
+// CORE_EMBED_SECRET — chave compartilhada (mesma usada pelo auto-login iframe)
+// =====================================================================
+const HUB_URL = process.env.HUB_URL || 'http://localhost:3003'
+const CORE_EMBED_SECRET = process.env.CORE_EMBED_SECRET || 'dros-core-embed-2026-shared-key'
+
+// Tokens: let porque sao atualizados periodicamente do Hub
+let META_TOKEN = process.env.META_ACCESS_TOKEN
+let KIWIFY_CLIENT_ID = process.env.KIWIFY_CLIENT_ID
+let KIWIFY_CLIENT_SECRET = process.env.KIWIFY_CLIENT_SECRET
+let KIWIFY_ACCOUNT_ID = process.env.KIWIFY_ACCOUNT_ID
+let GOOGLE_ADS_DEVELOPER_TOKEN = process.env.GOOGLE_ADS_DEVELOPER_TOKEN
+let GOOGLE_ADS_CLIENT_ID = process.env.GOOGLE_ADS_CLIENT_ID
+let GOOGLE_ADS_CLIENT_SECRET = process.env.GOOGLE_ADS_CLIENT_SECRET
+let GOOGLE_ADS_REFRESH_TOKEN = process.env.GOOGLE_ADS_REFRESH_TOKEN
+let GOOGLE_ADS_LOGIN_CUSTOMER_ID = process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID
+
+// Nomes de clientes vindos do Hub (substituem/expandem ALLOWED_CLIENTS hardcoded)
+let HUB_CLIENT_NAMES = []
+
+// Fetch tokens + lista de clientes do Hub. Roda no startup e a cada 10 min.
+async function syncFromHub() {
+  try {
+    const headers = { 'X-Core-Secret': CORE_EMBED_SECRET }
+    const [tokensRes, clientsRes] = await Promise.all([
+      fetch(`${HUB_URL}/api/config/tokens`, { headers }),
+      fetch(`${HUB_URL}/api/config/clients`, { headers }),
+    ])
+    if (tokensRes.ok) {
+      const { tokens } = await tokensRes.json()
+      // Atualiza apenas se Hub retornou valor (preserva fallback .env)
+      if (tokens.META_ACCESS_TOKEN) META_TOKEN = tokens.META_ACCESS_TOKEN
+      if (tokens.KIWIFY_CLIENT_ID) KIWIFY_CLIENT_ID = tokens.KIWIFY_CLIENT_ID
+      if (tokens.KIWIFY_CLIENT_SECRET) KIWIFY_CLIENT_SECRET = tokens.KIWIFY_CLIENT_SECRET
+      if (tokens.KIWIFY_ACCOUNT_ID) KIWIFY_ACCOUNT_ID = tokens.KIWIFY_ACCOUNT_ID
+      if (tokens.GOOGLE_ADS_DEVELOPER_TOKEN) GOOGLE_ADS_DEVELOPER_TOKEN = tokens.GOOGLE_ADS_DEVELOPER_TOKEN
+      if (tokens.GOOGLE_ADS_CLIENT_ID) GOOGLE_ADS_CLIENT_ID = tokens.GOOGLE_ADS_CLIENT_ID
+      if (tokens.GOOGLE_ADS_CLIENT_SECRET) GOOGLE_ADS_CLIENT_SECRET = tokens.GOOGLE_ADS_CLIENT_SECRET
+      if (tokens.GOOGLE_ADS_REFRESH_TOKEN) GOOGLE_ADS_REFRESH_TOKEN = tokens.GOOGLE_ADS_REFRESH_TOKEN
+      if (tokens.GOOGLE_ADS_LOGIN_CUSTOMER_ID) GOOGLE_ADS_LOGIN_CUSTOMER_ID = tokens.GOOGLE_ADS_LOGIN_CUSTOMER_ID
+      console.log('[Hub sync] tokens atualizados', Object.keys(tokens).length, 'chaves')
+    }
+    if (clientsRes.ok) {
+      const { clients } = await clientsRes.json()
+      HUB_CLIENT_NAMES = clients.map(c => (c.core_client_name || c.name || '').trim()).filter(Boolean)
+      console.log('[Hub sync] clientes recebidos:', HUB_CLIENT_NAMES.length)
+    }
+  } catch (err) {
+    console.error('[Hub sync] falhou (usando fallback .env):', err.message)
+  }
+}
+
+// Inicia sync no startup (nao bloqueante) e repete a cada 10min
+syncFromHub()
+setInterval(syncFromHub, 10 * 60 * 1000)
+
 // --- Allowed clients (substring match against account/page name) ---
-// Covers both ad account names AND Facebook Page names (which link to IG)
+// Hardcoded mantida como fallback. Lista dinamica (HUB_CLIENT_NAMES) e somada
+// em isAllowedAccount(). Pra remover um cliente, basta arquivar no Hub
+// (is_active=0) — sem precisar mexer aqui.
 const ALLOWED_CLIENTS = [
   'quimiprol',
   'ask equipamentos', 'ask ',
@@ -64,7 +122,9 @@ const ALLOWED_CLIENTS = [
 
 function isAllowedAccount(name) {
   const lower = name.toLowerCase()
-  return ALLOWED_CLIENTS.some((pattern) => lower.includes(pattern))
+  if (ALLOWED_CLIENTS.some((pattern) => lower.includes(pattern))) return true
+  // Hub-provided clients: match substring do nome completo (lowercase)
+  return HUB_CLIENT_NAMES.some(n => lower.includes(n.toLowerCase()))
 }
 
 // --- Admin users ---
@@ -78,8 +138,7 @@ const USERS = [
   },
 ]
 
-// Chave compartilhada com o /hub pra validar tokens de embed (auto-login no iframe)
-const CORE_EMBED_SECRET = process.env.CORE_EMBED_SECRET || 'dros-core-embed-2026-shared-key'
+// CORE_EMBED_SECRET ja declarado no topo (usado tanto pra sync com Hub quanto pra embed JWT)
 
 // --- Auth middleware ---
 function auth(req, res, next) {
@@ -1353,12 +1412,13 @@ app.get('/api/meta/accounts/:accountId/campaigns', auth, async (req, res) => {
 // GOOGLE ADS API
 // =============================================
 
+// Usa getters pra refletir mudancas dos `let` em runtime (atualizados por syncFromHub).
 const GADS = {
-  devToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
-  clientId: process.env.GOOGLE_ADS_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_ADS_CLIENT_SECRET,
-  refreshToken: process.env.GOOGLE_ADS_REFRESH_TOKEN,
-  loginCustomerId: (process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || '').replace(/-/g, ''),
+  get devToken() { return GOOGLE_ADS_DEVELOPER_TOKEN },
+  get clientId() { return GOOGLE_ADS_CLIENT_ID },
+  get clientSecret() { return GOOGLE_ADS_CLIENT_SECRET },
+  get refreshToken() { return GOOGLE_ADS_REFRESH_TOKEN },
+  get loginCustomerId() { return (GOOGLE_ADS_LOGIN_CUSTOMER_ID || '').replace(/-/g, '') },
   redirectUri: process.env.GADS_REDIRECT_URI || `http://localhost:${PORT}/api/google-ads/callback`,
 }
 
