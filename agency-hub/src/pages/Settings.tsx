@@ -1,8 +1,63 @@
+// =====================================================================
+// /hub/configuracoes — area do dono
+// Tabs:
+//   - Tokens (gerencia integracoes Meta/Google/Kiwify)
+//   - Pipeline (etapas do pipeline, comportamento antigo da pagina)
+// =====================================================================
 import { useState, useEffect } from 'react'
 import { fetchStages, apiFetch, type PipelineStage } from '../lib/api'
-import { Settings as SettingsIcon, Save, Plus, Trash2, GripVertical, Check } from 'lucide-react'
+import { Settings as SettingsIcon, Save, Plus, Trash2, GripVertical, Check, Key, Layers } from 'lucide-react'
+import TokensTab from '../components/TokensTab'
+
+type TabKey = 'tokens' | 'pipeline'
 
 export default function SettingsPage() {
+  const [tab, setTab] = useState<TabKey>('tokens')
+
+  return (
+    <div>
+      <div className="page-header">
+        <h1><SettingsIcon size={22} style={{ marginRight: 8 }} /> Configuracoes</h1>
+      </div>
+
+      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-subtle)', marginBottom: 20 }}>
+        <TabButton active={tab === 'tokens'} onClick={() => setTab('tokens')} icon={<Key size={14} />} label="Tokens / Integracoes" />
+        <TabButton active={tab === 'pipeline'} onClick={() => setTab('pipeline')} icon={<Layers size={14} />} label="Etapas do Pipeline" />
+      </div>
+
+      {tab === 'tokens' && <TokensTab />}
+      {tab === 'pipeline' && <PipelineTab />}
+    </div>
+  )
+}
+
+function TabButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: '10px 16px',
+        background: 'none',
+        border: 'none',
+        borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
+        color: active ? 'var(--accent)' : 'var(--text-muted)',
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+        fontSize: 13,
+        fontWeight: 600,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        marginBottom: -1,
+      }}
+    >
+      {icon} {label}
+    </button>
+  )
+}
+
+function PipelineTab() {
   const [stages, setStages] = useState<PipelineStage[]>([])
   const [loading, setLoading] = useState(true)
   const [editStages, setEditStages] = useState<Partial<PipelineStage>[]>([])
@@ -30,9 +85,9 @@ export default function SettingsPage() {
   }
 
   return (
-    <div>
-      <div className="page-header">
-        <h1><SettingsIcon size={22} style={{ marginRight: 8 }} /> Configuracoes</h1>
+    <section className="dash-section">
+      <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        Etapas do Pipeline
         {editing ? (
           <div style={{ display: 'flex', gap: 6 }}>
             <button className="btn btn-primary btn-sm" onClick={handleSave}><Save size={14} /> Salvar</button>
@@ -40,47 +95,43 @@ export default function SettingsPage() {
           </div>
         ) : (
           <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}>
-            {saved ? <><Check size={14} /> Salvo!</> : 'Editar Pipeline'}
+            {saved ? <><Check size={14} /> Salvo!</> : 'Editar'}
           </button>
         )}
       </div>
-
-      <section className="dash-section">
-        <div className="section-title">Etapas do Pipeline</div>
-        {loading ? <div className="loading-container"><div className="spinner" /></div> : (
-          <div className="card">
-            {editing ? (
-              <>
-                {editStages.map((s, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: i < editStages.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                    <GripVertical size={14} style={{ color: '#6B6580', cursor: 'grab', flexShrink: 0 }} />
-                    <span style={{ color: '#6B6580', fontSize: 11, width: 20, textAlign: 'center' }}>{i + 1}</span>
-                    <input type="color" value={s.color || '#FFB300'} onChange={e => updateStage(i, 'color', e.target.value)} style={{ width: 30, height: 30, border: 'none', cursor: 'pointer', borderRadius: 4, flexShrink: 0 }} />
-                    <input className="input" value={s.name || ''} onChange={e => updateStage(i, 'name', e.target.value)} placeholder="Nome da etapa" style={{ flex: 1, padding: '6px 10px' }} />
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, whiteSpace: 'nowrap', cursor: 'pointer', color: '#6B6580' }}>
-                      <input type="checkbox" checked={!!s.is_terminal} onChange={e => updateStage(i, 'is_terminal', e.target.checked ? 1 : 0)} /> Final
-                    </label>
-                    <button className="btn btn-danger btn-sm btn-icon" onClick={() => removeStage(i)}><Trash2 size={12} /></button>
-                  </div>
-                ))}
-                <button className="btn btn-secondary btn-sm" style={{ marginTop: 12 }} onClick={addStage}><Plus size={12} /> Adicionar Etapa</button>
-              </>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {stages.map((s, i) => (
-                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: i < stages.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
-                    <span style={{ color: '#6B6580', fontSize: 11, width: 20, textAlign: 'center' }}>{i + 1}</span>
-                    <span style={{ width: 14, height: 14, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, flex: 1 }}>{s.name}</span>
-                    <span style={{ fontSize: 10, color: '#6B6580' }}>{s.slug}</span>
-                    {s.is_terminal ? <span style={{ fontSize: 9, background: '#FF6B6B20', color: '#FF6B6B', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>FINAL</span> : null}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-    </div>
+      {loading ? <div className="loading-container"><div className="spinner" /></div> : (
+        <div className="card">
+          {editing ? (
+            <>
+              {editStages.map((s, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: i < editStages.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                  <GripVertical size={14} style={{ color: '#6B6580', cursor: 'grab', flexShrink: 0 }} />
+                  <span style={{ color: '#6B6580', fontSize: 11, width: 20, textAlign: 'center' }}>{i + 1}</span>
+                  <input type="color" value={s.color || '#FFB300'} onChange={e => updateStage(i, 'color', e.target.value)} style={{ width: 30, height: 30, border: 'none', cursor: 'pointer', borderRadius: 4, flexShrink: 0 }} />
+                  <input className="input" value={s.name || ''} onChange={e => updateStage(i, 'name', e.target.value)} placeholder="Nome da etapa" style={{ flex: 1, padding: '6px 10px' }} />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, whiteSpace: 'nowrap', cursor: 'pointer', color: '#6B6580' }}>
+                    <input type="checkbox" checked={!!s.is_terminal} onChange={e => updateStage(i, 'is_terminal', e.target.checked ? 1 : 0)} /> Final
+                  </label>
+                  <button className="btn btn-danger btn-sm btn-icon" onClick={() => removeStage(i)}><Trash2 size={12} /></button>
+                </div>
+              ))}
+              <button className="btn btn-secondary btn-sm" style={{ marginTop: 12 }} onClick={addStage}><Plus size={12} /> Adicionar Etapa</button>
+            </>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {stages.map((s, i) => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: i < stages.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+                  <span style={{ color: '#6B6580', fontSize: 11, width: 20, textAlign: 'center' }}>{i + 1}</span>
+                  <span style={{ width: 14, height: 14, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+                  <span style={{ fontWeight: 600, flex: 1 }}>{s.name}</span>
+                  <span style={{ fontSize: 10, color: '#6B6580' }}>{s.slug}</span>
+                  {s.is_terminal ? <span style={{ fontSize: 9, background: '#FF6B6B20', color: '#FF6B6B', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>FINAL</span> : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   )
 }

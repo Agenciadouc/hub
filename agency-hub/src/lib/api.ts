@@ -83,6 +83,23 @@ export const updateCategory = (id: number, data: Partial<TaskCategory>) => apiFe
 
 export const fetchStages = () => apiFetch<{ stages: PipelineStage[] }>('/api/stages').then(d => d.stages)
 
+// ============= Configuracoes / Tokens (dono-only) =============
+export interface AppSetting {
+  key: string
+  label: string
+  group: string
+  description: string
+  howto: string[]
+  is_secret: 0 | 1
+  value: string       // mascarado se is_secret e tem valor; '' se vazio
+  has_value: boolean
+  from_env_fallback: boolean
+  updated_at: string | null
+}
+export const fetchSettings = () => apiFetch<{ settings: AppSetting[] }>('/api/settings').then(d => d.settings)
+export const updateSetting = (key: string, value: string) =>
+  apiFetch(`/api/settings/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify({ value }) })
+
 export interface TaskFilters { client_id?: number; department_id?: number; stage?: string; assigned_to?: number; category_id?: number; priority?: string; search?: string; date_from?: string; date_to?: string; page?: number; limit?: number }
 export const fetchTasks = (filters: TaskFilters = {}) => {
   const params = new URLSearchParams()

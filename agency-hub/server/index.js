@@ -21,6 +21,7 @@ import notificationRoutes from './routes/notifications.js'
 import financialRoutes from './routes/financial.js'
 import performanceRoutes, { publicRouter as performancePublicRoutes } from './routes/performance.js'
 import taskTemplateRoutes from './routes/task-templates.js'
+import settingsRoutes from './routes/settings.js'
 import { runDueTemplates } from './services/taskTemplates.js'
 import { authenticate } from './middleware/auth.js'
 import { addSSEClient, removeSSEClient, addSSEUserClient, removeSSEUserClient, sendToUser } from './sse.js'
@@ -45,6 +46,7 @@ app.use('/api/financial', authenticate, financialRoutes)
 app.use('/api/performance', performancePublicRoutes)
 app.use('/api/performance', authenticate, performanceRoutes)
 app.use('/api/task-templates', authenticate, taskTemplateRoutes)
+app.use('/api/settings', authenticate, settingsRoutes)
 
 // Active timers for current user
 app.get('/api/my-timers', authenticate, (req, res) => {

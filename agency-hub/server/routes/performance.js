@@ -12,6 +12,7 @@
 
 import express from 'express'
 import db from '../db.js'
+import { getSetting } from './settings.js'
 
 // Polyfill fetch para Node 16
 if (!globalThis.fetch) {
@@ -22,13 +23,12 @@ if (!globalThis.fetch) {
 const router = express.Router()
 const publicRouter = express.Router()
 
-// IMPORTANTE: process.env e lido lazy via getters porque o dotenv.config()
-// do parent (server/index.js) so roda DEPOIS dos imports ESM serem hoisted.
-// Se ler no top-level, as vars ficam undefined.
-const getMetaToken = () => process.env.META_ACCESS_TOKEN
-const getKiwifyClientId = () => process.env.KIWIFY_CLIENT_ID
-const getKiwifyClientSecret = () => process.env.KIWIFY_CLIENT_SECRET
-const getKiwifyAccountId = () => process.env.KIWIFY_ACCOUNT_ID
+// IMPORTANTE: tokens lidos lazy. Prioridade: app_settings (DB) -> process.env
+// (fallback). Permite admin trocar token sem reiniciar processo.
+const getMetaToken = () => getSetting('META_ACCESS_TOKEN')
+const getKiwifyClientId = () => getSetting('KIWIFY_CLIENT_ID')
+const getKiwifyClientSecret = () => getSetting('KIWIFY_CLIENT_SECRET')
+const getKiwifyAccountId = () => getSetting('KIWIFY_ACCOUNT_ID')
 const META_BASE = 'https://graph.facebook.com/v21.0'
 const GADS_API = 'https://googleads.googleapis.com/v20'
 const GA4_API = 'https://analyticsdata.googleapis.com/v1beta'
@@ -967,11 +967,11 @@ router.get('/crm/:accountId/forms', async (req, res) => {
 // GADS_REDIRECT_URI compartilhado (que aponta pro /core). Assim os dois
 // sistemas podem fazer OAuth independente sem conflito.
 const getGADS = () => ({
-  devToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
-  clientId: process.env.GOOGLE_ADS_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_ADS_CLIENT_SECRET,
-  refreshToken: process.env.GOOGLE_ADS_REFRESH_TOKEN,
-  loginCustomerId: (process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID || '').replace(/-/g, ''),
+  devToken: getSetting('GOOGLE_ADS_DEVELOPER_TOKEN'),
+  clientId: getSetting('GOOGLE_ADS_CLIENT_ID'),
+  clientSecret: getSetting('GOOGLE_ADS_CLIENT_SECRET'),
+  refreshToken: getSetting('GOOGLE_ADS_REFRESH_TOKEN'),
+  loginCustomerId: (getSetting('GOOGLE_ADS_LOGIN_CUSTOMER_ID') || '').replace(/-/g, ''),
   redirectUri: process.env.HUB_GADS_REDIRECT_URI || `http://localhost:3003/api/performance/google-ads/callback`,
 })
 

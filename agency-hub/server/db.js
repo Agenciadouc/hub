@@ -471,6 +471,20 @@ for (const [col, def] of taskTplSubCols) {
   try { db.exec(`ALTER TABLE task_template_subtasks ADD COLUMN ${col} ${def}`) } catch {}
 }
 
+// =====================================================================
+// Configuracoes globais (tokens, integracoes). Substitui parte do .env.
+// Lido via routes/settings.js. Performance.js le tokens daqui com fallback env.
+// =====================================================================
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    is_secret INTEGER DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now', '-3 hours')),
+    updated_by INTEGER
+  )`)
+} catch {}
+
 // Migrate users.role CHECK to include 'gerente' (SQLite requires table rebuild)
 try {
   const tbl = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get()
