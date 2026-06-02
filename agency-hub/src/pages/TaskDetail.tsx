@@ -434,7 +434,7 @@ export default function TaskDetail() {
               </>
             ) : (
               <>
-                {task.description && !isCliente && <div style={{ fontSize: 13, color: '#A8A3B8', marginBottom: 16, lineHeight: 1.6 }}>{task.description}</div>}
+                {task.description && !isCliente && <div style={{ fontSize: 13, color: '#A8A3B8', marginBottom: 16, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{task.description}</div>}
                 {/* Overdue warning */}
                 {!isCliente && task.due_date && (() => { const n = new Date(); return task.due_date.slice(0, 10) < `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}` })() && task.stage !== 'concluido' && task.stage !== 'rejeitado' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', background: 'rgba(255,107,107,0.08)', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#FF6B6B', fontWeight: 600 }}>
@@ -662,7 +662,7 @@ export default function TaskDetail() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ fontSize: 12, fontWeight: 600 }}>{c.user_name}</span>
                     </div>
-                    <div style={{ fontSize: 13 }}>{c.content}</div>
+                    <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{c.content}</div>
                     <div style={{ fontSize: 10, color: '#6E6887', marginTop: 4 }}>{new Date(c.created_at).toLocaleString('pt-BR')}</div>
                   </div>
                 ))}
@@ -691,7 +691,7 @@ export default function TaskDetail() {
                     <span style={{ fontSize: 12, fontWeight: 600 }}>{c.user_name} <span style={{ fontSize: 10, color: '#6B6580', fontWeight: 400 }}>({c.user_role})</span></span>
                     <span style={{ fontSize: 9, fontWeight: 700, color: c.is_internal ? '#FFB300' : '#34C759' }}>{c.is_internal ? '🔒 INTERNO' : '👁 CLIENTE'}</span>
                   </div>
-                  <div style={{ fontSize: 13 }}>{c.content}</div>
+                  <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{c.content}</div>
                   <div style={{ fontSize: 10, color: '#6B6580', marginTop: 4 }}>{new Date(c.created_at).toLocaleString('pt-BR')}</div>
                 </div>
               ))}
