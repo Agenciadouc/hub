@@ -56,6 +56,10 @@ const ALLOWED_CLIENTS = [
   'agrozacca',
   'emdi',
   'oxi dpr', 'dpr',
+  'box paper',
+  'ambiental higiene',
+  'gringa',
+  'telhabras', 'telha.bras',
 ]
 
 function isAllowedAccount(name) {
