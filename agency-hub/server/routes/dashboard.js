@@ -3,6 +3,48 @@ import db from '../db.js'
 
 const router = Router()
 
+// Feriados nacionais BR pra calculo de streak.
+// Fixos (todo ano) usam MM-DD; moveis (Carnaval/Sexta-Santa/Corpus Christi)
+// usam YYYY-MM-DD e precisam ser atualizados anualmente.
+// Atualizar lista quando virar o ano (adicionar proximo ano).
+const BR_HOLIDAYS = new Set([
+  // Fixos nacionais
+  '01-01', // Confraternizacao Universal
+  '04-21', // Tiradentes
+  '05-01', // Dia do Trabalho
+  '09-07', // Independencia
+  '10-12', // N. Sra. Aparecida
+  '11-02', // Finados
+  '11-15', // Proclamacao da Republica
+  '11-20', // Consciencia Negra (Lei 14.759/2023)
+  '12-25', // Natal
+
+  // Moveis 2024
+  '2024-02-12', '2024-02-13', // Carnaval (seg/ter)
+  '2024-03-29',               // Sexta-feira Santa
+  '2024-05-30',               // Corpus Christi
+  // Moveis 2025
+  '2025-03-03', '2025-03-04',
+  '2025-04-18',
+  '2025-06-19',
+  // Moveis 2026
+  '2026-02-16', '2026-02-17',
+  '2026-04-03',
+  '2026-06-04',               // <- Corpus Christi 2026
+  // Moveis 2027
+  '2027-02-08', '2027-02-09',
+  '2027-03-26',
+  '2027-05-27',
+])
+
+function isBrHoliday(dateStr) {
+  // dateStr formato 'YYYY-MM-DD'
+  if (!dateStr || dateStr.length < 10) return false
+  const mmdd = dateStr.slice(5)  // 'MM-DD'
+  if (BR_HOLIDAYS.has(mmdd)) return true
+  return BR_HOLIDAYS.has(dateStr)
+}
+
 router.get('/stats', (req, res) => {
   const { days = '30' } = req.query
   const since = new Date(); since.setDate(since.getDate() - parseInt(days))
@@ -166,7 +208,7 @@ router.get('/stats', (req, res) => {
     }
 
     // Streak: dias uteis consecutivos com pelo menos 1 conclusao terminando em hoje.
-    // - Sabado e domingo NAO quebram a sequencia (sao ignorados)
+    // - Sabado, domingo E feriado nacional NAO quebram a sequencia (sao ignorados)
     // - Tolera zero conclusoes hoje (comeca a contar de ontem)
     // - Quebra na primeira sexta/qua/etc com zero conclusoes
     let streak = 0
@@ -174,6 +216,7 @@ router.get('/stats', (req, res) => {
       const d = new Date(heatmap[i].date + 'T12:00:00')
       const dow = d.getDay() // 0=domingo, 6=sabado
       if (dow === 0 || dow === 6) continue // fim de semana: nao quebra nem soma
+      if (isBrHoliday(heatmap[i].date)) continue // feriado nacional: ignora
       if (heatmap[i].count > 0) { streak++; continue }
       if (i === heatmap.length - 1) continue // tolera zero hoje
       break
@@ -201,6 +244,7 @@ router.get('/stats', (req, res) => {
         const dow = d.getDay()
         if (dow === 0 || dow === 6) continue
         const key = d.toISOString().slice(0, 10)
+        if (isBrHoliday(key)) continue // feriado nacional: ignora
         if (completedSet.has(key)) {
           current++
           currentEnd = key
