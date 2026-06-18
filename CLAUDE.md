@@ -6,7 +6,7 @@ It contains the complete file map with exports and purpose for every file.
 Use it to locate the exact file you need, then read only that file.
 
 ## Git
-- **Repo:** https://github.com/soaresjoaoluiz1/platform
+- **Repo:** https://github.com/Agenciadouc/hub
 - **Branch:** master
 - **Remote name:** `platform` (NÃO `origin` — origin aponta pro repo upstream `renatoasse/opensquad`)
 - Sempre commit + push ao terminar mudanças. User pede comando de deploy depois.

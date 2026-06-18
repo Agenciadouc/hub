@@ -2,7 +2,7 @@
 
 Hub administrativo da Agência DROS. Gestão de clientes, contas, tarefas (workflow editorial), aprovações, financeiro (DRE, despesas, parcelamentos) e calendário de gravações.
 
-**Repo:** https://github.com/soaresjoaoluiz1/platform
+**Repo:** https://github.com/Agenciadouc/hub
 **URL produção:** https://drosagencia.com.br/hub
 
 ## Stack
