@@ -45,6 +45,21 @@ function isBrHoliday(dateStr) {
   return BR_HOLIDAYS.has(dateStr)
 }
 
+// Dias off por usuario — ignorados no calculo do streak (nao quebram nem somam).
+// Uso interno pra dias em que houve trabalho fora do Hub. Keys: user_id numero.
+const USER_STREAK_SKIP = {
+  20: new Set([  // Joao Luiz
+    '2026-07-03', '2026-07-09', '2026-07-13', '2026-07-15', '2026-07-16',
+    '2026-07-17', '2026-07-20', '2026-07-21', '2026-07-22', '2026-07-23',
+    '2026-07-24', '2026-07-27',
+  ]),
+}
+
+function isSkippedForUser(uid, dateStr) {
+  const set = USER_STREAK_SKIP[uid]
+  return !!(set && set.has(dateStr))
+}
+
 router.get('/stats', (req, res) => {
   const { days = '30' } = req.query
   const since = new Date(); since.setDate(since.getDate() - parseInt(days))
@@ -217,6 +232,7 @@ router.get('/stats', (req, res) => {
       const dow = d.getDay() // 0=domingo, 6=sabado
       if (dow === 0 || dow === 6) continue // fim de semana: nao quebra nem soma
       if (isBrHoliday(heatmap[i].date)) continue // feriado nacional: ignora
+      if (isSkippedForUser(uid, heatmap[i].date)) continue // dia off do usuario: ignora
       if (heatmap[i].count > 0) { streak++; continue }
       if (i === heatmap.length - 1) continue // tolera zero hoje
       break
@@ -245,6 +261,7 @@ router.get('/stats', (req, res) => {
         if (dow === 0 || dow === 6) continue
         const key = d.toISOString().slice(0, 10)
         if (isBrHoliday(key)) continue // feriado nacional: ignora
+        if (isSkippedForUser(uid, key)) continue // dia off do usuario: ignora
         if (completedSet.has(key)) {
           current++
           currentEnd = key
