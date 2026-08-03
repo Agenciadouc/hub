@@ -59,6 +59,8 @@ router.post('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
   const effectiveApprovalLink = filesJson ? JSON.parse(filesJson)[0] : (b.approval_link || null)
   const nextRunAt = computeNextRunAt(b.recurrence_type, +b.recurrence_day, +b.recurrence_hour || 6)
 
+  const mode = b.mode === 'on_complete' ? 'on_complete' : 'auto'
+
   const tx = db.transaction(() => {
     const result = db.prepare(`
       INSERT INTO task_templates (
@@ -67,8 +69,8 @@ router.post('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
         drive_link, drive_link_raw, approval_link, approval_files, approval_text,
         publish_date, publish_objective,
         due_date_offset_days, recurrence_type, recurrence_day, recurrence_hour,
-        next_run_at, created_by
-      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        next_run_at, created_by, mode
+      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       b.name, b.task_type || 'normal', +b.client_id,
       b.category_id || null, b.department_id || null,
@@ -76,7 +78,7 @@ router.post('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
       b.drive_link || null, b.drive_link_raw || null, effectiveApprovalLink, filesJson, b.approval_text || null,
       b.publish_date || null, b.publish_objective || null,
       +b.due_date_offset_days || 7, b.recurrence_type, +b.recurrence_day, +b.recurrence_hour || 6,
-      nextRunAt, req.user.id
+      nextRunAt, req.user.id, mode
     )
     const tplId = result.lastInsertRowid
 
@@ -118,6 +120,19 @@ router.post('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
   })
 
   const tplId = tx()
+
+  // Se mode=on_complete, ja cria a 1a instancia imediatamente pra usuario ver a tarefa
+  // na lista sem esperar o cron rodar. Idempotente: se falhar, template fica ativo e o
+  // cron pega no proximo tick (que pra on_complete so cria se nao ha pendente — coerente).
+  if (mode === 'on_complete') {
+    try {
+      const r = createTaskFromTemplate(tplId, { userId: req.user.id })
+      console.log(`[Recurring] template=${tplId} criado em modo on_complete, 1a task=${r.taskId}`)
+    } catch (e) {
+      console.error(`[Recurring] template=${tplId} criado mas falha ao disparar 1a task:`, e.message)
+    }
+  }
+
   res.json({ template: loadFullTemplate(tplId) })
   } catch (err) {
     console.error('[task-templates POST] erro:', err.message, err.stack)
@@ -162,6 +177,7 @@ router.put('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) => 
         due_date_offset_days = COALESCE(?, due_date_offset_days),
         recurrence_type = ?, recurrence_day = ?, recurrence_hour = ?,
         next_run_at = ?,
+        mode = COALESCE(?, mode),
         updated_at = datetime('now', '-3 hours')
       WHERE id = ?
     `).run(
@@ -176,7 +192,9 @@ router.put('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) => 
       b.publish_date || null, b.publish_objective || null,
       b.due_date_offset_days != null ? +b.due_date_offset_days : null,
       newType, newDay, newHour,
-      nextRunAt, tplId
+      nextRunAt,
+      b.mode === 'on_complete' || b.mode === 'auto' ? b.mode : null,
+      tplId
     )
 
     // Replace assignees

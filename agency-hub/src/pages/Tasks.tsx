@@ -292,6 +292,7 @@ export default function Tasks() {
                     <td className="name" onClick={() => navigate(`/tasks/${t.id}`)}>
                       {t.title} {t.drive_link && <ExternalLink size={10} style={{ color: '#5DADE2', marginLeft: 4 }} />}
                       {overdue && <AlertTriangle size={10} style={{ color: '#FF6B6B', marginLeft: 4 }} />}
+                      {(t as any).template_id && <Repeat size={10} style={{ color: '#9B59B6', marginLeft: 4 }} aria-label="Tarefa recorrente" />}
                     </td>
                     {!isCliente && <td onClick={() => navigate(`/tasks/${t.id}`)} style={{ fontSize: 12 }}><Building2 size={10} /> {t.client_name}</td>}
                     <td onClick={() => navigate(`/tasks/${t.id}`)}><span className="stage-badge" style={{ background: `${t.stage_color}20`, color: t.stage_color }}>{t.stage_name}</span></td>

@@ -333,6 +333,10 @@ try { db.exec("ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'normal'") } 
 try { db.exec("ALTER TABLE tasks ADD COLUMN num_posts INTEGER") } catch {}
 try { db.exec("ALTER TABLE tasks ADD COLUMN num_videos INTEGER") } catch {}
 try { db.exec("ALTER TABLE tasks ADD COLUMN recording_datetime TEXT") } catch {}
+// Rastreia origem da task quando criada a partir de template recorrente.
+// Usado pra (a) mostrar badge visual "Recorrente" na UI e (b) disparar proxima instancia quando task fecha (mode='on_complete').
+try { db.exec("ALTER TABLE tasks ADD COLUMN template_id INTEGER") } catch {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_template ON tasks(template_id)") } catch {}
 try { db.exec("ALTER TABLE tasks ADD COLUMN briefing_content TEXT") } catch {}
 try { db.exec("ALTER TABLE tasks ADD COLUMN parent_task_id INTEGER") } catch {}
 try { db.exec("ALTER TABLE tasks ADD COLUMN subtask_position INTEGER") } catch {}
@@ -447,6 +451,10 @@ const taskTplCols = [
   ['created_by', 'INTEGER'],
   ['created_at', "TEXT DEFAULT (datetime('now', '-3 hours'))"],
   ['updated_at', "TEXT DEFAULT (datetime('now', '-3 hours'))"],
+  // mode = 'auto' (cron cria toda vez que bate a data, mesmo se ha pendentes — legado)
+  //        'on_complete' (cron so cria proxima se nao ha nenhuma instancia pendente do template).
+  // Padrao 'auto' pra nao alterar comportamento de templates ja existentes.
+  ['mode', "TEXT DEFAULT 'auto'"],
 ]
 for (const [col, def] of taskTplCols) {
   try { db.exec(`ALTER TABLE task_templates ADD COLUMN ${col} ${def}`) } catch {}

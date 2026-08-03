@@ -125,8 +125,8 @@ export function createTaskFromTemplate(templateId, opts = {}) {
       client_id, category_id, department_id, title, description,
       priority, due_date, assigned_to, drive_link, drive_link_raw,
       approval_link, approval_files, approval_text, publish_date, publish_objective,
-      created_by, stage, task_type
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'backlog', ?)
+      created_by, stage, task_type, template_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'backlog', ?, ?)
   `)
   const insertSubtask = db.prepare(`
     INSERT INTO tasks (
@@ -141,7 +141,7 @@ export function createTaskFromTemplate(templateId, opts = {}) {
   const updateTpl = db.prepare("UPDATE task_templates SET last_run_at = datetime('now', '-3 hours'), next_run_at = ?, updated_at = datetime('now', '-3 hours') WHERE id = ?")
 
   const tx = db.transaction(() => {
-    // 1. Insere a tarefa raiz (normal ou mae)
+    // 1. Insere a tarefa raiz (normal ou mae) — grava template_id pra UI mostrar badge + trigger de proxima ao concluir
     const result = insertTask.run(
       tpl.client_id, tpl.category_id || null, tpl.department_id || null,
       tpl.title, tpl.description || null,
@@ -149,7 +149,7 @@ export function createTaskFromTemplate(templateId, opts = {}) {
       tpl.drive_link || null, tpl.drive_link_raw || null,
       tpl.approval_link || null, tpl.approval_files || null, tpl.approval_text || null,
       tpl.publish_date || null, tpl.publish_objective || null,
-      createdBy, tpl.task_type || 'normal'
+      createdBy, tpl.task_type || 'normal', templateId
     )
     const taskId = result.lastInsertRowid
 
@@ -209,16 +209,23 @@ export function createTaskFromTemplate(templateId, opts = {}) {
 
 // Chamado pelo cron. Pega todos os templates ativos com next_run_at <= agora
 // e executa cada um. Retorna lista de { templateId, taskId } criados.
+// Templates com mode='on_complete' sao pulados se ainda existe alguma instancia PENDENTE
+// (task com template_id igual + stage nao terminal). Assim nao acumula tarefas se o dono
+// nao concluiu a anterior — proximo ciclo dispara so quando ela fechar (em routes/tasks.js).
 export function runDueTemplates() {
   const due = db.prepare(`
-    SELECT id FROM task_templates
+    SELECT id, mode FROM task_templates
     WHERE is_active = 1
       AND next_run_at IS NOT NULL
       AND next_run_at <= datetime('now', '-3 hours')
   `).all()
   const created = []
-  for (const { id } of due) {
+  for (const { id, mode } of due) {
     try {
+      if (mode === 'on_complete' && hasPendingInstance(id)) {
+        console.log(`[Recurring] template ${id} pulado — mode=on_complete e ha instancia pendente`)
+        continue
+      }
       const r = createTaskFromTemplate(id)
       created.push({ templateId: id, taskId: r.taskId })
     } catch (err) {
@@ -226,4 +233,17 @@ export function runDueTemplates() {
     }
   }
   return created
+}
+
+// Retorna true se ha pelo menos 1 task pendente (nao terminal, nao arquivada) originada deste template.
+// Terminal stages: concluido, rejeitado. Se essa lista muda, ajustar aqui.
+export function hasPendingInstance(templateId) {
+  const row = db.prepare(`
+    SELECT 1 FROM tasks
+    WHERE template_id = ?
+      AND stage NOT IN ('concluido', 'rejeitado')
+      AND (parent_task_id IS NULL)
+    LIMIT 1
+  `).get(templateId)
+  return !!row
 }

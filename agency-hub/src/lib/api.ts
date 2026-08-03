@@ -46,6 +46,7 @@ export interface Task {
   num_posts?: number | null; num_videos?: number | null
   recording_datetime?: string | null; briefing_content?: string | null
   changes_requested?: string | null
+  template_id?: number | null   // preenchido quando a task foi criada por uma recorrencia
   subtask_count?: number; subtask_done_count?: number
   assignees?: { user_id: number; name: string }[]
   subtasks?: Task[]
@@ -163,6 +164,9 @@ export interface TaskTemplate {
   recurrence_type: 'weekly' | 'monthly'
   recurrence_day: number
   recurrence_hour: number
+  // 'auto' = cron cria sempre na data marcada (comportamento antigo, mesmo com pendentes).
+  // 'on_complete' = cria proxima apenas quando a instancia anterior for concluida.
+  mode?: 'auto' | 'on_complete'
   last_run_at: string | null
   next_run_at: string | null
   created_by: number | null

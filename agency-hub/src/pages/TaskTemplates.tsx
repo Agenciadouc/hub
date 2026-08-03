@@ -17,11 +17,12 @@ const WEEKDAYS = [
 ]
 
 function formatFrequency(t: TaskTemplate) {
+  const modeSuffix = t.mode === 'on_complete' ? ' · ao concluir' : t.mode === 'auto' ? ' · sempre' : ''
   if (t.recurrence_type === 'weekly') {
     const day = WEEKDAYS.find(w => w.v === t.recurrence_day)?.label || `Dia ${t.recurrence_day}`
-    return `Semanal · ${day} ${String(t.recurrence_hour).padStart(2, '0')}:00`
+    return `Semanal · ${day} ${String(t.recurrence_hour).padStart(2, '0')}:00${modeSuffix}`
   }
-  return `Mensal · Dia ${t.recurrence_day} ${String(t.recurrence_hour).padStart(2, '0')}:00`
+  return `Mensal · Dia ${t.recurrence_day} ${String(t.recurrence_hour).padStart(2, '0')}:00${modeSuffix}`
 }
 
 function formatDateBR(s: string | null) {

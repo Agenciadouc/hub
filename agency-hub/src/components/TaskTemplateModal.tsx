@@ -37,6 +37,7 @@ interface FormState {
   recurrence_type: 'weekly' | 'monthly'
   recurrence_day: number
   recurrence_hour: number
+  mode: 'auto' | 'on_complete'
   assigned_to: string[]
   subtasks: TaskTemplateSubtask[]
   is_active: boolean
@@ -49,6 +50,7 @@ const BLANK_FORM: FormState = {
   publish_date: '', publish_objective: '',
   due_date_offset_days: 7,
   recurrence_type: 'monthly', recurrence_day: 1, recurrence_hour: 6,
+  mode: 'on_complete',
   assigned_to: [], subtasks: [], is_active: true,
 }
 
@@ -102,6 +104,7 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
           recurrence_type: t.recurrence_type,
           recurrence_day: t.recurrence_day,
           recurrence_hour: t.recurrence_hour,
+          mode: (t.mode === 'auto' || t.mode === 'on_complete') ? t.mode : 'auto',
           assigned_to: (t.assigned_to || []).map(String),
           subtasks: (t.subtasks || []).map(s => ({ ...s, assigned_to: s.assigned_to || [] })),
           is_active: !!t.is_active,
@@ -139,6 +142,7 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
         recurrence_type: form.recurrence_type,
         recurrence_day: +form.recurrence_day,
         recurrence_hour: +form.recurrence_hour,
+        mode: form.mode,
         assigned_to: form.assigned_to.map(Number),
         subtasks: form.subtasks.map((s, i) => ({
           subtask_position: i + 1,
@@ -232,6 +236,23 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
           {form.recurrence_type === 'monthly' && form.recurrence_day === 31 && (
             <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 6 }}>Em meses com menos de 31 dias, vai usar o ultimo dia disponivel (28/29/30).</div>
           )}
+          <div className="form-group" style={{ marginTop: 12, padding: 10, background: 'rgba(155,89,182,0.05)', border: '1px solid rgba(155,89,182,0.2)', borderRadius: 6 }}>
+            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Comportamento da recorrencia</label>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
+              <input type="radio" name="tpl-mode" value="on_complete" checked={form.mode === 'on_complete'} onChange={() => setForm(p => ({ ...p, mode: 'on_complete' }))} style={{ marginTop: 3 }} />
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>So gera a proxima quando eu concluir a atual</div>
+                <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 2 }}>Nao acumula tarefas se voce nao concluir no prazo. Ao criar, ja entra 1 tarefa na sua lista.</small>
+              </div>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+              <input type="radio" name="tpl-mode" value="auto" checked={form.mode === 'auto'} onChange={() => setForm(p => ({ ...p, mode: 'auto' }))} style={{ marginTop: 3 }} />
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>Sempre criar na data marcada</div>
+                <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 2 }}>Cron cria uma nova tarefa toda vez que bate a data, mesmo se ha tarefas anteriores em aberto. Pode acumular.</small>
+              </div>
+            </label>
+          </div>
         </div>
 
         <div className="form-row">

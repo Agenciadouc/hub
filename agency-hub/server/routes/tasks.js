@@ -3,6 +3,7 @@ import db from '../db.js'
 import { requireRole } from '../middleware/auth.js'
 import { broadcastSSE } from '../sse.js'
 import { notify, notifyMany, getDonoUsers, getClientUsers } from '../notifications.js'
+import { createTaskFromTemplate } from '../services/taskTemplates.js'
 
 const router = Router()
 
@@ -686,6 +687,27 @@ router.put('/:id/stage', (req, res) => {
   if (stage === 'concluido') {
     getAssignees(updated.id).filter(a => a.user_id !== req.user.id).forEach(a => notify(a.user_id, 'task_completed', 'Tarefa concluida', `"${updated.title}"`, updated.id, req.user.id))
     notifyMany(getClientUsers(updated.client_id).map(u => u.id), 'task_completed', 'Tarefa concluida', `"${updated.title}"`, updated.id, req.user.id)
+  }
+
+  // ===== Recorrencia: se task de template mode=on_complete concluiu, dispara proxima instancia =====
+  // So dispara pra task raiz (parent_task_id NULL) — subtarefas nao geram recorrencia propria.
+  // Fire-and-forget: erro nao quebra resposta ao usuario, so loga.
+  if (stage === 'concluido' && updated.template_id && !updated.parent_task_id) {
+    try {
+      const tpl = db.prepare('SELECT mode, is_active FROM task_templates WHERE id = ?').get(updated.template_id)
+      if (tpl && tpl.is_active && tpl.mode === 'on_complete') {
+        setImmediate(() => {
+          try {
+            const r = createTaskFromTemplate(updated.template_id, { userId: req.user.id })
+            console.log(`[Recurring] on_complete: template=${updated.template_id} concluiu task=${updated.id}, criada proxima task=${r.taskId}`)
+          } catch (e) {
+            console.error(`[Recurring] on_complete: falha ao criar proxima do template=${updated.template_id}:`, e.message)
+          }
+        })
+      }
+    } catch (e) {
+      console.error('[Recurring] on_complete lookup falhou:', e.message)
+    }
   }
 
   // ===== Editorial workflow triggers (when subtask completes) =====
