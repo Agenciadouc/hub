@@ -25,6 +25,19 @@ function useIsMobile() { const [m, setM] = useState(window.innerWidth <= 640); u
 
 const PRIORITY_COLORS: Record<string, string> = { low: '#6B6580', normal: '#5DADE2', high: '#FFAA83', urgent: '#FF6B6B' }
 
+// Sort de cards dentro de cada coluna do Kanban: prazo mais proximo/antigo primeiro.
+// Tarefas SEM due_date vao pro final (nulls last). Empate no due_date desempata por id desc
+// (recem-criada aparece antes se prazos batem — comportamento estavel).
+function sortByDueDateAsc(a: any, b: any) {
+  const ad = a.due_date ? a.due_date.slice(0, 10) : ''
+  const bd = b.due_date ? b.due_date.slice(0, 10) : ''
+  if (!ad && !bd) return (b.id || 0) - (a.id || 0)
+  if (!ad) return 1
+  if (!bd) return -1
+  if (ad !== bd) return ad < bd ? -1 : 1
+  return (b.id || 0) - (a.id || 0)
+}
+
 export default function Pipeline() {
   const { user } = useAuth()
   const { toast } = useToast()
@@ -176,7 +189,7 @@ export default function Pipeline() {
     <div>
       <div className="page-header"><h1>Pipeline</h1></div>
       {stages.filter(s => showTerminal || !s.is_terminal).map(stage => {
-        const stageTasks = tasks.filter(t => t.stage === stage.slug)
+        const stageTasks = tasks.filter(t => t.stage === stage.slug).sort(sortByDueDateAsc)
         const expanded = expandedStages.has(stage.slug)
         return (
           <div key={stage.id} className="kanban-mobile-stage">
@@ -268,7 +281,7 @@ export default function Pipeline() {
             // search filter
             if (searchQuery && !t.title.toLowerCase().includes(searchLower) && !t.client_name?.toLowerCase().includes(searchLower) && !t.assigned_name?.toLowerCase().includes(searchLower)) return false
             return true
-          })
+          }).sort(sortByDueDateAsc)
           return (
             <div key={stage.id} className="kanban-column"
               onDragOver={e => { e.preventDefault(); e.currentTarget.querySelector('.kanban-cards')?.classList.add('drag-over') }}
