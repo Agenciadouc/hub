@@ -525,8 +525,9 @@ router.get('/:id', (req, res) => {
         WHERE t.parent_task_id = ? AND t.is_active = 1 ORDER BY t.subtask_position
       `).all(task.parent_task_id)
       // Anexos da mae — pra o card mostrar sem precisar navegar
+      // Schema real: task_attachments tem (id, task_id, url, filename, type, uploaded_by, created_at)
       task.parent.attachments = db.prepare(`
-        SELECT ta.id, ta.file_name, ta.file_url, ta.file_size, ta.mime_type, ta.created_at,
+        SELECT ta.id, ta.filename, ta.url, ta.type, ta.created_at,
           u.name as uploaded_by_name
         FROM task_attachments ta LEFT JOIN users u ON ta.uploaded_by = u.id
         WHERE ta.task_id = ? ORDER BY ta.created_at DESC

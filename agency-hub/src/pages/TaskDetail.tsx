@@ -334,8 +334,8 @@ export default function TaskDetail() {
                             <div style={{ fontSize: 10, color: '#6B6580', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Anexos (da mae, {parentAtts.length})</div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                               {parentAtts.slice(0, 5).map((a: any) => (
-                                <a key={a.id} href={a.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#5DADE2', display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}>
-                                  <Paperclip size={10} /> {a.file_name}
+                                <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#5DADE2', display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}>
+                                  <Paperclip size={10} /> {a.filename}
                                 </a>
                               ))}
                               {parentAtts.length > 5 && <div style={{ fontSize: 10, color: '#6B6580' }}>+ {parentAtts.length - 5} outros (abrir mae pra ver)</div>}
