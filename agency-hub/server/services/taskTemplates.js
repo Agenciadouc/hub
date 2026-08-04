@@ -117,7 +117,15 @@ export function createTaskFromTemplate(templateId, opts = {}) {
   const subTemplates = db.prepare('SELECT * FROM task_template_subtasks WHERE template_id = ? ORDER BY subtask_position').all(templateId)
 
   const createdBy = opts.userId || tpl.created_by || null
-  const motherDueDate = computeDueDate(tpl.due_date_offset_days)
+  // Due date da tarefa mae:
+  //  - modo 'on_complete': due_date = proxima ocorrencia do dia configurado (ex: proxima segunda,
+  //    ou dia 15 do proximo mes). Ignora due_date_offset_days porque a "rotina" pede data fixa.
+  //  - modo 'auto' (legado): due_date = hoje + offset_dias (comportamento antigo, o cron ja controla
+  //    a data de CRIACAO, entao offset da folga pra executar).
+  const nextRunIso = computeNextRunAt(tpl.recurrence_type, tpl.recurrence_day, tpl.recurrence_hour)
+  const motherDueDate = tpl.mode === 'on_complete'
+    ? nextRunIso.slice(0, 10)               // 'YYYY-MM-DD' da proxima ocorrencia
+    : computeDueDate(tpl.due_date_offset_days)
   const primaryAssignee = assignees[0] || null
 
   const insertTask = db.prepare(`
@@ -133,8 +141,8 @@ export function createTaskFromTemplate(templateId, opts = {}) {
       client_id, category_id, department_id, title, description,
       priority, due_date, assigned_to, drive_link, drive_link_raw,
       approval_link, approval_files, approval_text, publish_date, publish_objective,
-      created_by, stage, task_type, parent_task_id, subtask_position
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'backlog', 'normal', ?, ?)
+      created_by, stage, task_type, parent_task_id, subtask_position, template_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'backlog', 'normal', ?, ?, ?)
   `)
   const insertAssignee = db.prepare('INSERT OR IGNORE INTO task_assignees (task_id, user_id) VALUES (?, ?)')
   const insertHistory = db.prepare('INSERT INTO task_history (task_id, to_stage, user_id) VALUES (?, ?, ?)')
@@ -163,7 +171,11 @@ export function createTaskFromTemplate(templateId, opts = {}) {
     let subtasksCreated = 0
     if (tpl.task_type === 'mae' && subTemplates.length > 0) {
       subTemplates.forEach(sub => {
-        const subDueDate = computeDueDate(sub.due_date_offset_days != null ? sub.due_date_offset_days : tpl.due_date_offset_days)
+        // Em modo on_complete, subtarefas herdam data da mae (mesma data da proxima ocorrencia).
+        // Em modo auto, mantem o comportamento antigo (hoje + offset da subtarefa ou da mae).
+        const subDueDate = tpl.mode === 'on_complete'
+          ? motherDueDate
+          : computeDueDate(sub.due_date_offset_days != null ? sub.due_date_offset_days : tpl.due_date_offset_days)
         const subAssignees = db.prepare('SELECT user_id FROM task_template_subtask_assignees WHERE template_subtask_id = ?').all(sub.id).map(r => r.user_id)
         const subPrimary = subAssignees[0] || null
         const subResult = insertSubtask.run(
@@ -173,7 +185,7 @@ export function createTaskFromTemplate(templateId, opts = {}) {
           sub.drive_link || null, sub.drive_link_raw || null,
           sub.approval_link || null, sub.approval_files || null, sub.approval_text || null,
           sub.publish_date || null, sub.publish_objective || null,
-          createdBy, taskId, sub.subtask_position || 0
+          createdBy, taskId, sub.subtask_position || 0, templateId
         )
         const subId = subResult.lastInsertRowid
         subAssignees.forEach(uid => insertAssignee.run(subId, uid))

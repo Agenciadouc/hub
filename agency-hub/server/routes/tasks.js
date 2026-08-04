@@ -514,10 +514,22 @@ router.get('/:id', (req, res) => {
       WHERE t.id = ?
     `).get(task.parent_task_id)
     if (task.parent) {
+      // Irmas com dados completos (description, drive, approval) pra expansao inline no TaskDetail
       task.parent.subtasks = db.prepare(`
-        SELECT t.id, t.title, t.stage, t.subtask_position, ps.name as stage_name, ps.color as stage_color
+        SELECT t.id, t.title, t.stage, t.subtask_position, t.description,
+          t.drive_link, t.drive_link_raw, t.approval_link, t.approval_files, t.approval_text,
+          t.publish_date, t.publish_objective, t.due_date, t.priority,
+          ps.name as stage_name, ps.color as stage_color,
+          (SELECT GROUP_CONCAT(u2.name, ', ') FROM task_assignees ta2 JOIN users u2 ON ta2.user_id = u2.id WHERE ta2.task_id = t.id) as assigned_name
         FROM tasks t LEFT JOIN pipeline_stages ps ON t.stage = ps.slug
         WHERE t.parent_task_id = ? AND t.is_active = 1 ORDER BY t.subtask_position
+      `).all(task.parent_task_id)
+      // Anexos da mae — pra o card mostrar sem precisar navegar
+      task.parent.attachments = db.prepare(`
+        SELECT ta.id, ta.file_name, ta.file_url, ta.file_size, ta.mime_type, ta.created_at,
+          u.name as uploaded_by_name
+        FROM task_attachments ta LEFT JOIN users u ON ta.uploaded_by = u.id
+        WHERE ta.task_id = ? ORDER BY ta.created_at DESC
       `).all(task.parent_task_id)
     }
   }
@@ -729,6 +741,27 @@ router.put('/:id/stage', (req, res) => {
         db.prepare('INSERT INTO task_history (task_id, from_stage, to_stage, user_id, comment) VALUES (?, ?, ?, ?, ?)').run(maeParent.id, maeParent.stage, 'concluido', req.user.id, 'Auto: todas as subtarefas concluidas')
         const updatedMae = db.prepare('SELECT * FROM tasks WHERE id = ?').get(maeParent.id)
         broadcastSSE(maeParent.client_id, 'task:stage_changed', updatedMae)
+
+        // Recorrencia on_complete: se a mae fechada e' de template on_complete, dispara proxima.
+        // Necessario aqui tambem porque este auto-close nao passa pelo hook do inicio do endpoint
+        // (que so ve `updated`, nao a mae). Fire-and-forget.
+        if (updatedMae.template_id) {
+          try {
+            const tpl = db.prepare('SELECT mode, is_active FROM task_templates WHERE id = ?').get(updatedMae.template_id)
+            if (tpl && tpl.is_active && tpl.mode === 'on_complete') {
+              setImmediate(() => {
+                try {
+                  const r = createTaskFromTemplate(updatedMae.template_id, { userId: req.user.id })
+                  console.log(`[Recurring] on_complete (mae auto-close): template=${updatedMae.template_id} mae=${updatedMae.id}, criada proxima task=${r.taskId}`)
+                } catch (e) {
+                  console.error(`[Recurring] on_complete mae auto-close: falha template=${updatedMae.template_id}:`, e.message)
+                }
+              })
+            }
+          } catch (e) {
+            console.error('[Recurring] on_complete mae lookup falhou:', e.message)
+          }
+        }
       }
     }
   }

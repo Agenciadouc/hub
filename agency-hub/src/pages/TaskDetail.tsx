@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useSSE } from '../context/SSEContext'
 import { fetchTask, fetchClients, fetchDepartments, fetchUsers, fetchCategories, fetchStages, updateTask, moveTaskStage, addTaskComment, addTaskAttachment, deleteTaskAttachment, approveTask, rejectTask, startTimer, stopTimer, confirmRecording, addSubtask, getApprovalFiles, type Task, type TaskComment, type TaskHistory, type TaskAttachment, type TimeEntry, type Client, type Department, type User as UserT, type TaskCategory, type PipelineStage } from '../lib/api'
 import { isDriveUrl, toDriveEmbedUrl } from '../lib/drive'
-import { ArrowLeft, Building2, Clock, User, ExternalLink, CheckCircle, XCircle, Send, MessageCircle, GitBranch, Paperclip, Eye, Edit3, Save, X, Plus, AlertTriangle, Layers, ChevronRight, Video, Trash2 } from 'lucide-react'
+import { ArrowLeft, Building2, Clock, User, ExternalLink, CheckCircle, XCircle, Send, MessageCircle, GitBranch, Paperclip, Eye, Edit3, Save, X, Plus, AlertTriangle, Layers, ChevronRight, ChevronDown, Video, Trash2, FileText } from 'lucide-react'
 import { useToast } from '../components/Toast'
 
 export default function TaskDetail() {
@@ -21,6 +21,9 @@ export default function TaskDetail() {
   const [rejectReason, setRejectReason] = useState('')
   const [showReject, setShowReject] = useState(false)
   const [activeTab, setActiveTab] = useState<'comments' | 'history' | 'attachments' | 'time'>('comments')
+  // Expansao inline das irmas no card "Tarefa-Mae" (subtaskId -> aberta/fechada)
+  const [expandedSiblings, setExpandedSiblings] = useState<Set<number>>(new Set())
+  const [parentInfoOpen, setParentInfoOpen] = useState(true)  // secao "detalhes da mae" comeca aberta
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [totalTime, setTotalTime] = useState(0)
   const [activeTimerEntry, setActiveTimerEntry] = useState<TimeEntry | null>(null)
@@ -257,42 +260,161 @@ export default function TaskDetail() {
           )}
 
           {/* Parent task summary (when viewing a subtask) */}
-          {(task as any).parent && (
-            <div className="card" style={{ marginBottom: 12, borderLeft: '3px solid #FFB300', background: 'rgba(255,179,0,0.04)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#FFB300', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Layers size={12} /> Tarefa-Mae
+          {(task as any).parent && (() => {
+            const parent = (task as any).parent
+            const siblings = parent.subtasks || []
+            const parentAtts = parent.attachments || []
+            const parentApprovalFiles = getApprovalFiles(parent)
+            const parentHasDetails = !!(parent.description || parent.drive_link || parent.drive_link_raw || parent.approval_link || parent.approval_text || parentApprovalFiles.length > 0 || parentAtts.length > 0)
+            const toggleSib = (id: number) => setExpandedSiblings(prev => {
+              const next = new Set(prev)
+              next.has(id) ? next.delete(id) : next.add(id)
+              return next
+            })
+            return (
+              <div className="card" style={{ marginBottom: 12, borderLeft: '3px solid #FFB300', background: 'rgba(255,179,0,0.04)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#FFB300', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Layers size={12} /> Contexto da Tarefa-Mae
+                  </div>
+                  <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/tasks/${parent.id}`)}>
+                    Abrir mae <ChevronRight size={12} />
+                  </button>
                 </div>
-                <button className="btn btn-secondary btn-sm" onClick={() => navigate(`/tasks/${(task as any).parent.id}`)}>
-                  Abrir mae <ChevronRight size={12} />
-                </button>
-              </div>
-              <div style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-heading)', marginBottom: 6 }}>
-                {(task as any).parent.title}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#9B96B0', marginBottom: 10, flexWrap: 'wrap' }}>
-                <span className="stage-badge" style={{ background: `${(task as any).parent.stage_color}20`, color: (task as any).parent.stage_color }}>{(task as any).parent.stage_name}</span>
-                {(task as any).parent.assigned_name && <span><User size={10} /> {(task as any).parent.assigned_name}</span>}
-                {(task as any).parent.due_date && <span><Clock size={10} /> {(task as any).parent.due_date.slice(0, 10)}</span>}
-              </div>
-              {/* Sibling navigation */}
-              {(task as any).parent.subtasks?.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
-                  {(task as any).parent.subtasks.map((s: any) => {
-                    const isCurrent = s.id === task.id
-                    return (
-                      <div key={s.id} onClick={() => !isCurrent && navigate(`/tasks/${s.id}`)}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6, fontSize: 12, cursor: isCurrent ? 'default' : 'pointer', background: isCurrent ? 'rgba(255,179,0,0.12)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isCurrent ? 'rgba(255,179,0,0.3)' : 'rgba(255,255,255,0.04)'}` }}>
-                        <span style={{ width: 18, height: 18, borderRadius: '50%', background: s.stage_color || '#6B6580', color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{s.subtask_position}</span>
-                        <span style={{ flex: 1, fontWeight: isCurrent ? 700 : 400, color: isCurrent ? '#F2F0F7' : '#9B96B0' }}>{s.title.replace(' - ' + (task as any).parent.title, '').replace((task as any).parent.title + ' - ', '')}</span>
-                        <span style={{ fontSize: 10, color: s.stage_color }}>{s.stage_name}</span>
+
+                {/* Header basico da mae */}
+                <div style={{ fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-heading)', marginBottom: 6 }}>
+                  {parent.title}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#9B96B0', marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span className="stage-badge" style={{ background: `${parent.stage_color}20`, color: parent.stage_color }}>{parent.stage_name}</span>
+                  {parent.assigned_name && <span><User size={10} /> {parent.assigned_name}</span>}
+                  {parent.due_date && <span><Clock size={10} /> {parent.due_date.slice(0, 10)}</span>}
+                </div>
+
+                {/* Detalhes da mae (Fase A) — colapsavel, so aparece se ha algum dado */}
+                {parentHasDetails && (
+                  <div style={{ marginBottom: 12, background: 'rgba(255,255,255,0.02)', borderRadius: 6, padding: '8px 10px' }}>
+                    <button
+                      onClick={() => setParentInfoOpen(v => !v)}
+                      style={{ background: 'transparent', border: 'none', color: '#9B96B0', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0, marginBottom: parentInfoOpen ? 8 : 0 }}
+                    >
+                      {parentInfoOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      Detalhes da mae (descricao, links, anexos)
+                    </button>
+                    {parentInfoOpen && (
+                      <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {parent.description && (
+                          <div>
+                            <div style={{ fontSize: 10, color: '#6B6580', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 2 }}>Descricao</div>
+                            <div style={{ color: '#c9c4d8', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{parent.description}</div>
+                          </div>
+                        )}
+                        {(parent.drive_link || parent.drive_link_raw) && (
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {parent.drive_link_raw && <a href={parent.drive_link_raw} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }}><ExternalLink size={10} /> Arquivo Bruto (da mae)</a>}
+                            {parent.drive_link && <a href={parent.drive_link} target="_blank" rel="noopener noreferrer" className="btn btn-primary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }}><ExternalLink size={10} /> Arquivo Pronto (da mae)</a>}
+                          </div>
+                        )}
+                        {(parent.approval_link || parentApprovalFiles.length > 0 || parent.approval_text) && (
+                          <div>
+                            <div style={{ fontSize: 10, color: '#6B6580', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 2 }}>Aprovacao (da mae)</div>
+                            {parent.approval_text && <div style={{ color: '#c9c4d8', whiteSpace: 'pre-wrap', marginBottom: 4, lineHeight: 1.4 }}>{parent.approval_text}</div>}
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              {parentApprovalFiles.length > 0
+                                ? parentApprovalFiles.map((url: string, i: number) => (
+                                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }}><ExternalLink size={10} /> Arquivo aprovacao {parentApprovalFiles.length > 1 ? i + 1 : ''}</a>
+                                  ))
+                                : parent.approval_link && <a href={parent.approval_link} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '4px 8px' }}><ExternalLink size={10} /> Arquivo aprovacao</a>}
+                            </div>
+                          </div>
+                        )}
+                        {parentAtts.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 10, color: '#6B6580', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>Anexos (da mae, {parentAtts.length})</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              {parentAtts.slice(0, 5).map((a: any) => (
+                                <a key={a.id} href={a.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#5DADE2', display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}>
+                                  <Paperclip size={10} /> {a.file_name}
+                                </a>
+                              ))}
+                              {parentAtts.length > 5 && <div style={{ fontSize: 10, color: '#6B6580' }}>+ {parentAtts.length - 5} outros (abrir mae pra ver)</div>}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+                    )}
+                  </div>
+                )}
+
+                {/* Lista de irmas (Fase B) — cada uma expansivel */}
+                {siblings.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+                    <div style={{ fontSize: 10, color: '#6B6580', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>
+                      Subtarefas ({siblings.length})
+                    </div>
+                    {siblings.map((s: any) => {
+                      const isCurrent = s.id === task.id
+                      const isOpen = expandedSiblings.has(s.id)
+                      const sApprovalFiles = getApprovalFiles(s)
+                      const sHasDetails = !isCurrent && !!(s.description || s.drive_link || s.drive_link_raw || s.approval_link || s.approval_text || sApprovalFiles.length > 0)
+                      const displayTitle = s.title.replace(' - ' + parent.title, '').replace(parent.title + ' - ', '')
+                      return (
+                        <div key={s.id} style={{ borderRadius: 6, background: isCurrent ? 'rgba(255,179,0,0.12)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isCurrent ? 'rgba(255,179,0,0.3)' : 'rgba(255,255,255,0.04)'}`, overflow: 'hidden' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12 }}>
+                            <span style={{ width: 18, height: 18, borderRadius: '50%', background: s.stage_color || '#6B6580', color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{s.subtask_position}</span>
+                            <span
+                              onClick={() => !isCurrent && navigate(`/tasks/${s.id}`)}
+                              style={{ flex: 1, fontWeight: isCurrent ? 700 : 400, color: isCurrent ? '#F2F0F7' : '#c9c4d8', cursor: isCurrent ? 'default' : 'pointer' }}
+                              title={isCurrent ? 'Voce esta aqui' : 'Abrir esta subtarefa'}
+                            >
+                              {displayTitle}{isCurrent && <span style={{ color: '#FFB300', marginLeft: 6, fontSize: 10, fontWeight: 700 }}>· voce esta aqui</span>}
+                            </span>
+                            <span style={{ fontSize: 10, color: s.stage_color }}>{s.stage_name}</span>
+                            {sHasDetails && (
+                              <button
+                                onClick={e => { e.stopPropagation(); toggleSib(s.id) }}
+                                style={{ background: 'transparent', border: 'none', color: '#9B96B0', cursor: 'pointer', padding: 2, display: 'flex' }}
+                                title={isOpen ? 'Fechar detalhes' : 'Ver descricao, links e anexos'}
+                              >
+                                {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                              </button>
+                            )}
+                          </div>
+                          {isOpen && sHasDetails && (
+                            <div style={{ padding: '4px 10px 10px 36px', fontSize: 11, display: 'flex', flexDirection: 'column', gap: 6, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                              <div style={{ fontSize: 10, color: '#FFB300', fontWeight: 600 }}>
+                                Da subtarefa {s.subtask_position} — {displayTitle}
+                              </div>
+                              {s.description && (
+                                <div style={{ color: '#c9c4d8', whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>{s.description}</div>
+                              )}
+                              {(s.drive_link || s.drive_link_raw) && (
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                  {s.drive_link_raw && <a href={s.drive_link_raw} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: '#5DADE2', display: 'flex', alignItems: 'center', gap: 3 }}><ExternalLink size={10} /> Bruto</a>}
+                                  {s.drive_link && <a href={s.drive_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: '#5DADE2', display: 'flex', alignItems: 'center', gap: 3 }}><ExternalLink size={10} /> Pronto</a>}
+                                </div>
+                              )}
+                              {(s.approval_link || sApprovalFiles.length > 0 || s.approval_text) && (
+                                <div>
+                                  {s.approval_text && <div style={{ color: '#c9c4d8', marginBottom: 3, whiteSpace: 'pre-wrap' }}>{s.approval_text}</div>}
+                                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                    {sApprovalFiles.length > 0
+                                      ? sApprovalFiles.map((url: string, i: number) => <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: '#FFB300', display: 'flex', alignItems: 'center', gap: 3 }}><ExternalLink size={10} /> Aprovacao {sApprovalFiles.length > 1 ? i + 1 : ''}</a>)
+                                      : s.approval_link && <a href={s.approval_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: '#FFB300', display: 'flex', alignItems: 'center', gap: 3 }}><ExternalLink size={10} /> Aprovacao</a>}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           <div className="card" style={{ marginBottom: 16 }}>
             {/* Edit toggle */}
