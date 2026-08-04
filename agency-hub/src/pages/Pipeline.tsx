@@ -301,10 +301,13 @@ export default function Pipeline() {
                             <Layers size={9} /> Subtarefa
                           </div>
                         )}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 }}>
                           <div className="kanban-card-name">{displayTitle}</div>
-                          {task.priority === 'urgent' && <span style={{ fontSize: 9, background: '#FF6B6B20', color: '#FF6B6B', padding: '1px 6px', borderRadius: 4, fontWeight: 700, flexShrink: 0 }}>URGENTE</span>}
-                          {task.priority === 'high' && <span style={{ fontSize: 9, background: '#FFAA8320', color: '#FFAA83', padding: '1px 6px', borderRadius: 4, fontWeight: 700, flexShrink: 0 }}>ALTA</span>}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end', flexShrink: 0 }}>
+                            {task.priority === 'urgent' && <span style={{ fontSize: 9, background: '#FF6B6B20', color: '#FF6B6B', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>URGENTE</span>}
+                            {task.priority === 'high' && <span style={{ fontSize: 9, background: '#FFAA8320', color: '#FFAA83', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>ALTA</span>}
+                            {(task as any).template_id && <span title="Tarefa recorrente" style={{ fontSize: 9, background: 'rgba(155,89,182,0.18)', color: '#c39bda', padding: '1px 6px', borderRadius: 4, fontWeight: 700, border: '1px solid rgba(155,89,182,0.3)' }}>RECORRENTE</span>}
+                          </div>
                         </div>
                         {(task as any).changes_requested && (
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, background: 'rgba(255,179,0,0.18)', color: '#FFB300', padding: '2px 7px', borderRadius: 4, fontWeight: 700, marginTop: 4, marginBottom: 2, border: '1px solid rgba(255,179,0,0.3)' }}>
