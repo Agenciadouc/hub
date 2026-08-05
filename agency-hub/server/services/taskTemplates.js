@@ -133,8 +133,8 @@ export function createTaskFromTemplate(templateId, opts = {}) {
       client_id, category_id, department_id, title, description,
       priority, due_date, assigned_to, drive_link, drive_link_raw,
       approval_link, approval_files, approval_text, publish_date, publish_objective,
-      created_by, stage, task_type, template_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'backlog', ?, ?)
+      created_by, stage, task_type, template_id, sequential_subtasks
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'backlog', ?, ?, ?)
   `)
   const insertSubtask = db.prepare(`
     INSERT INTO tasks (
@@ -157,7 +157,7 @@ export function createTaskFromTemplate(templateId, opts = {}) {
       tpl.drive_link || null, tpl.drive_link_raw || null,
       tpl.approval_link || null, tpl.approval_files || null, tpl.approval_text || null,
       tpl.publish_date || null, tpl.publish_objective || null,
-      createdBy, tpl.task_type || 'normal', templateId
+      createdBy, tpl.task_type || 'normal', templateId, tpl.sequential_subtasks ? 1 : 0
     )
     const taskId = result.lastInsertRowid
 

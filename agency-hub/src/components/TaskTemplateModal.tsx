@@ -38,6 +38,7 @@ interface FormState {
   recurrence_day: number
   recurrence_hour: number
   mode: 'auto' | 'on_complete'
+  sequential_subtasks: boolean
   assigned_to: string[]
   subtasks: TaskTemplateSubtask[]
   is_active: boolean
@@ -51,6 +52,7 @@ const BLANK_FORM: FormState = {
   due_date_offset_days: 7,
   recurrence_type: 'monthly', recurrence_day: 1, recurrence_hour: 6,
   mode: 'on_complete',
+  sequential_subtasks: false,
   assigned_to: [], subtasks: [], is_active: true,
 }
 
@@ -105,6 +107,7 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
           recurrence_day: t.recurrence_day,
           recurrence_hour: t.recurrence_hour,
           mode: (t.mode === 'auto' || t.mode === 'on_complete') ? t.mode : 'auto',
+          sequential_subtasks: !!(t as any).sequential_subtasks,
           assigned_to: (t.assigned_to || []).map(String),
           subtasks: (t.subtasks || []).map(s => ({ ...s, assigned_to: s.assigned_to || [] })),
           is_active: !!t.is_active,
@@ -143,6 +146,7 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
         recurrence_day: +form.recurrence_day,
         recurrence_hour: +form.recurrence_hour,
         mode: form.mode,
+        sequential_subtasks: form.sequential_subtasks ? 1 : 0,
         assigned_to: form.assigned_to.map(Number),
         subtasks: form.subtasks.map((s, i) => ({
           subtask_position: i + 1,
@@ -281,6 +285,15 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
 
         {form.task_type === 'mae' && (
           <div style={{ padding: '14px 16px', background: 'var(--bg-hover)', border: '1px solid var(--border-subtle)', borderRadius: 10, marginTop: 12 }}>
+            <div style={{ marginBottom: 12, padding: 10, background: 'rgba(255,179,0,0.06)', border: '1px solid rgba(255,179,0,0.25)', borderRadius: 6 }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 0 }}>
+                <input type="checkbox" checked={form.sequential_subtasks} onChange={e => setForm(p => ({ ...p, sequential_subtasks: e.target.checked }))} style={{ marginTop: 3 }} />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>Concluir subtarefas em ordem</div>
+                  <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 2 }}>Cada execucao dessa recorrencia bloqueia conclusao fora de ordem. Sub 2 so pode fechar depois da 1, e assim por diante.</small>
+                </div>
+              </label>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>Subtarefas ({form.subtasks.length})</div>
               <button type="button" className="btn btn-secondary btn-sm" onClick={addSubtaskRow}><Plus size={11} /> Adicionar subtarefa</button>

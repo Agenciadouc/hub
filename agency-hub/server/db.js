@@ -337,6 +337,10 @@ try { db.exec("ALTER TABLE tasks ADD COLUMN recording_datetime TEXT") } catch {}
 // Usado pra (a) mostrar badge visual "Recorrente" na UI e (b) disparar proxima instancia quando task fecha (mode='on_complete').
 try { db.exec("ALTER TABLE tasks ADD COLUMN template_id INTEGER") } catch {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_template ON tasks(template_id)") } catch {}
+// Flag na tarefa MAE: se 1, subtarefas so podem ser concluidas em ordem de subtask_position.
+// Backend bloqueia PUT /:id/stage='concluido' se ha alguma subtarefa anterior nao concluida.
+// Ignorado em tarefas normais (sem subtarefas).
+try { db.exec("ALTER TABLE tasks ADD COLUMN sequential_subtasks INTEGER NOT NULL DEFAULT 0") } catch {}
 try { db.exec("ALTER TABLE tasks ADD COLUMN briefing_content TEXT") } catch {}
 try { db.exec("ALTER TABLE tasks ADD COLUMN parent_task_id INTEGER") } catch {}
 try { db.exec("ALTER TABLE tasks ADD COLUMN subtask_position INTEGER") } catch {}
@@ -455,6 +459,8 @@ const taskTplCols = [
   //        'on_complete' (cron so cria proxima se nao ha nenhuma instancia pendente do template).
   // Padrao 'auto' pra nao alterar comportamento de templates ja existentes.
   ['mode', "TEXT DEFAULT 'auto'"],
+  // Espelha tasks.sequential_subtasks — quando template gera task mae, propaga essa flag.
+  ['sequential_subtasks', 'INTEGER NOT NULL DEFAULT 0'],
 ]
 for (const [col, def] of taskTplCols) {
   try { db.exec(`ALTER TABLE task_templates ADD COLUMN ${col} ${def}`) } catch {}

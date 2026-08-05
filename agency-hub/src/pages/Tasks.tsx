@@ -78,7 +78,7 @@ export default function Tasks() {
   const [newRequest, setNewRequest] = useState({ title: '', description: '', drive_link_raw: '' })
   const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
   const [newTask, setNewTask] = useState({ title: '', description: '', client_id: '', category_id: '', department_id: '', assigned_to: [] as string[], due_date: today, priority: 'normal', drive_link: '' })
-  const [newMae, setNewMae] = useState({ title: '', client_id: '', description: '', due_date: today, category_id: '', department_id: '', priority: 'normal', assigned_to: [] as string[], drive_link: '', drive_link_raw: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '' })
+  const [newMae, setNewMae] = useState({ title: '', client_id: '', description: '', due_date: today, category_id: '', department_id: '', priority: 'normal', assigned_to: [] as string[], drive_link: '', drive_link_raw: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '', sequential_subtasks: false })
   const [newMaeIsCarrossel, setNewMaeIsCarrossel] = useState(false)
   const [newMaeFiles, setNewMaeFiles] = useState<string[]>([''])
   // Bulk
@@ -149,9 +149,10 @@ export default function Tasks() {
         approval_text: newMae.approval_text || undefined,
         publish_date: newMae.publish_date || undefined,
         publish_objective: newMae.publish_objective || undefined,
+        sequential_subtasks: newMae.sequential_subtasks,
       })
       setShowNewMae(false)
-      setNewMae({ title: '', client_id: '', description: '', due_date: today, category_id: '', department_id: '', priority: 'normal', assigned_to: [], drive_link: '', drive_link_raw: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '' })
+      setNewMae({ title: '', client_id: '', description: '', due_date: today, category_id: '', department_id: '', priority: 'normal', assigned_to: [], drive_link: '', drive_link_raw: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '', sequential_subtasks: false })
       setNewMaeIsCarrossel(false); setNewMaeFiles([''])
       loadTasks()
       toast('Tarefa Mae criada — abra ela e adicione as subtarefas')
@@ -370,6 +371,15 @@ export default function Tasks() {
           <div className="form-row">
             <div className="form-group"><label>Prazo</label><input className="input" type="date" value={newMae.due_date} onChange={e => setNewMae(p => ({ ...p, due_date: e.target.value }))} /></div>
             <div className="form-group"><label>Prioridade</label><select className="select" value={newMae.priority} onChange={e => setNewMae(p => ({ ...p, priority: e.target.value }))}><option value="baixa">Baixa</option><option value="normal">Normal</option><option value="alta">Alta</option><option value="urgente">Urgente</option></select></div>
+          </div>
+          <div className="form-group" style={{ padding: 10, background: 'rgba(255,179,0,0.06)', border: '1px solid rgba(255,179,0,0.25)', borderRadius: 6 }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 0 }}>
+              <input type="checkbox" checked={newMae.sequential_subtasks} onChange={e => setNewMae(p => ({ ...p, sequential_subtasks: e.target.checked }))} style={{ marginTop: 3 }} />
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>Concluir subtarefas em ordem</div>
+                <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 2 }}>Se marcado, a subtarefa 2 so pode ser concluida depois da 1, e assim por diante.</small>
+              </div>
+            </label>
           </div>
           <div className="form-row">
             <div className="form-group"><label>Link Drive (Arquivo Bruto)</label><input className="input" value={newMae.drive_link_raw} onChange={e => setNewMae(p => ({ ...p, drive_link_raw: e.target.value }))} placeholder="https://drive.google.com/..." /></div>

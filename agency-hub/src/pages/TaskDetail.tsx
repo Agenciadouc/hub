@@ -215,6 +215,18 @@ export default function TaskDetail() {
   const canSchedule = isDono && task.stage === 'aprovado_cliente'
   const canComplete = isDono && task.stage === 'programar_publicacao'
 
+  // Sequential lock: se esta task e subtarefa E a mae tem sequential_subtasks=1,
+  // procura a primeira irma anterior nao concluida — se existir, esta task esta "bloqueada".
+  // Usado pra desabilitar botao Concluir e mostrar aviso amarelo. Backend faz a mesma checagem
+  // como source of truth, isso aqui e' so UX preventiva.
+  const parentSeq = (task as any).parent
+  const sequentialBlockedBy: any = (() => {
+    if (!parentSeq || parentSeq.sequential_subtasks !== 1) return null
+    const currentPos = (task as any).subtask_position || 0
+    const siblings = parentSeq.subtasks || []
+    return siblings.find((s: any) => (s.subtask_position || 0) < currentPos && s.stage !== 'concluido' && s.stage !== 'rejeitado') || null
+  })()
+
   return (
     <div>
       <div className="page-header">
@@ -222,20 +234,26 @@ export default function TaskDetail() {
           <button className="btn btn-secondary btn-icon" onClick={() => navigate(-1)}><ArrowLeft size={16} /></button>
           <div>
             <h1 style={{ fontSize: 20 }}>{task.title}</h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#A8A3B8' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#A8A3B8', flexWrap: 'wrap' }}>
               <Building2 size={12} /> {task.client_name}
               <span className="stage-badge" style={{ background: `${task.stage_color}20`, color: task.stage_color }}>{task.stage_name}</span>
+              {(task as any).sequential_subtasks === 1 && !(task as any).parent_task_id && (
+                <span title="Subtarefas desta mae so podem ser concluidas em ordem" style={{ fontSize: 10, background: 'rgba(255,179,0,0.15)', color: '#FFB300', padding: '2px 6px', borderRadius: 4, fontWeight: 700, border: '1px solid rgba(255,179,0,0.3)' }}>SUBTAREFAS EM ORDEM</span>
+              )}
+              {sequentialBlockedBy && (
+                <span title={`Aguarda "${sequentialBlockedBy.title}" concluir`} style={{ fontSize: 10, background: 'rgba(255,107,107,0.15)', color: '#FF6B6B', padding: '2px 6px', borderRadius: 4, fontWeight: 700, border: '1px solid rgba(255,107,107,0.3)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>🔒 BLOQUEADA (aguarda subtarefa {sequentialBlockedBy.subtask_position})</span>
+              )}
             </div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {canPickUp && <button className="btn btn-primary btn-sm" onClick={() => handleStageMove('em_producao')}>Iniciar</button>}
+          {canPickUp && <button className="btn btn-primary btn-sm" onClick={() => handleStageMove('em_producao')} disabled={!!sequentialBlockedBy} title={sequentialBlockedBy ? `Bloqueada: aguarda "${sequentialBlockedBy.title}"` : ''}>Iniciar</button>}
           {canSubmitReview && <button className="btn btn-primary btn-sm" onClick={() => handleStageMove('revisao_interna')}><Send size={12} /> Enviar pra Revisao</button>}
           {canMoveToApproval && <button className="btn btn-primary btn-sm" onClick={() => handleStageMove('aprovacao_interna')}>Enviar pra Aprovacao</button>}
           {canApproveInternal && <><button className="btn btn-primary btn-sm" onClick={handleApprove}><CheckCircle size={12} /> Aprovar</button><button className="btn btn-danger btn-sm" onClick={() => setShowReject(true)}><XCircle size={12} /> Rejeitar</button></>}
           {canApproveClient && <><button className="btn btn-primary btn-sm" onClick={handleApprove}><CheckCircle size={12} /> Aprovar</button><button className="btn btn-danger btn-sm" onClick={() => setShowReject(true)}><XCircle size={12} /> Rejeitar</button></>}
           {canSchedule && <button className="btn btn-primary btn-sm" onClick={() => handleStageMove('programar_publicacao')}>Programar</button>}
-          {canComplete && <button className="btn btn-primary btn-sm" onClick={() => handleStageMove('concluido')}><CheckCircle size={12} /> Concluir</button>}
+          {canComplete && <button className="btn btn-primary btn-sm" onClick={() => handleStageMove('concluido')} disabled={!!sequentialBlockedBy} title={sequentialBlockedBy ? `Bloqueada: aguarda "${sequentialBlockedBy.title}"` : ''}><CheckCircle size={12} /> Concluir</button>}
           {(isDono || isFunc) && stages.length > 0 && (
             <select className="select" style={{ fontSize: 12, padding: '6px 10px', width: 'auto', minWidth: 140 }} value="" onChange={e => { if (e.target.value) handleStageMove(e.target.value) }}>
               <option value="">Mover para...</option>
@@ -350,8 +368,9 @@ export default function TaskDetail() {
                 {/* Lista de irmas (Fase B) — cada uma expansivel */}
                 {siblings.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
-                    <div style={{ fontSize: 10, color: '#6B6580', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 }}>
+                    <div style={{ fontSize: 10, color: '#6B6580', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                       Subtarefas ({siblings.length})
+                      {parent.sequential_subtasks === 1 && <span style={{ fontSize: 9, background: 'rgba(255,179,0,0.15)', color: '#FFB300', padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>EM ORDEM</span>}
                     </div>
                     {siblings.map((s: any) => {
                       const isCurrent = s.id === task.id
@@ -359,14 +378,17 @@ export default function TaskDetail() {
                       const sApprovalFiles = getApprovalFiles(s)
                       const sHasDetails = !isCurrent && !!(s.description || s.drive_link || s.drive_link_raw || s.approval_link || s.approval_text || sApprovalFiles.length > 0)
                       const displayTitle = s.title.replace(' - ' + parent.title, '').replace(parent.title + ' - ', '')
+                      // Se mae e sequential, esta irma esta "bloqueada" se ha alguma sub anterior ainda em aberto
+                      const sIsBlocked = parent.sequential_subtasks === 1 && s.stage !== 'concluido' && s.stage !== 'rejeitado' && siblings.some((o: any) => (o.subtask_position || 0) < (s.subtask_position || 0) && o.stage !== 'concluido' && o.stage !== 'rejeitado')
                       return (
-                        <div key={s.id} style={{ borderRadius: 6, background: isCurrent ? 'rgba(255,179,0,0.12)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isCurrent ? 'rgba(255,179,0,0.3)' : 'rgba(255,255,255,0.04)'}`, overflow: 'hidden' }}>
+                        <div key={s.id} style={{ borderRadius: 6, background: isCurrent ? 'rgba(255,179,0,0.12)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isCurrent ? 'rgba(255,179,0,0.3)' : 'rgba(255,255,255,0.04)'}`, overflow: 'hidden', opacity: sIsBlocked ? 0.7 : 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', fontSize: 12 }}>
                             <span style={{ width: 18, height: 18, borderRadius: '50%', background: s.stage_color || '#6B6580', color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{s.subtask_position}</span>
+                            {sIsBlocked && <span title="Bloqueada — aguarda subtarefa anterior concluir" style={{ fontSize: 10, color: '#FF6B6B', flexShrink: 0 }}>🔒</span>}
                             <span
                               onClick={() => !isCurrent && navigate(`/tasks/${s.id}`)}
                               style={{ flex: 1, fontWeight: isCurrent ? 700 : 400, color: isCurrent ? '#F2F0F7' : '#c9c4d8', cursor: isCurrent ? 'default' : 'pointer' }}
-                              title={isCurrent ? 'Voce esta aqui' : 'Abrir esta subtarefa'}
+                              title={isCurrent ? 'Voce esta aqui' : sIsBlocked ? 'Bloqueada — aguarda subtarefa anterior' : 'Abrir esta subtarefa'}
                             >
                               {displayTitle}{isCurrent && <span style={{ color: '#FFB300', marginLeft: 6, fontSize: 10, fontWeight: 700 }}>· voce esta aqui</span>}
                             </span>

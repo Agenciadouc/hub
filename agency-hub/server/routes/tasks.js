@@ -278,7 +278,7 @@ router.get('/gravacoes/calendar', (req, res) => {
 // Create generic mae task — sem subtarefas auto-criadas (option C)
 // Subtarefas sao adicionadas manualmente via POST /:id/subtasks
 router.post('/mae', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
-  const { client_id, title, description, due_date, category_id, department_id, priority, drive_link, drive_link_raw, approval_link, approval_files, approval_text, publish_date, publish_objective, assigned_to } = req.body
+  const { client_id, title, description, due_date, category_id, department_id, priority, drive_link, drive_link_raw, approval_link, approval_files, approval_text, publish_date, publish_objective, assigned_to, sequential_subtasks } = req.body
   if (!client_id || !title) return res.status(400).json({ error: 'client_id e title obrigatorios' })
   const assigneeIds = Array.isArray(assigned_to) ? assigned_to.filter(Boolean).map(Number) : (assigned_to ? [Number(assigned_to)] : [])
   const primaryAssignee = assigneeIds[0] || null
@@ -286,9 +286,10 @@ router.post('/mae', requireRole('dono', 'gerente', 'funcionario'), (req, res) =>
   const filesJson = filesArr.length > 0 ? JSON.stringify(filesArr) : null
   const effectiveApprovalLink = filesArr.length > 0 ? filesArr[0] : (approval_link || null)
   const result = db.prepare(`
-    INSERT INTO tasks (client_id, category_id, department_id, title, description, priority, due_date, created_by, stage, task_type, assigned_to, drive_link, drive_link_raw, approval_link, approval_files, approval_text, publish_date, publish_objective)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'backlog', 'mae', ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(client_id, category_id || null, department_id || null, title, description || null, priority || 'normal', due_date || null, req.user.id, primaryAssignee, drive_link || null, drive_link_raw || null, effectiveApprovalLink, filesJson, approval_text || null, publish_date || null, publish_objective || null)
+    INSERT INTO tasks (client_id, category_id, department_id, title, description, priority, due_date, created_by, stage, task_type, assigned_to, drive_link, drive_link_raw, approval_link, approval_files, approval_text, publish_date, publish_objective, sequential_subtasks)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'backlog', 'mae', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(client_id, category_id || null, department_id || null, title, description || null, priority || 'normal', due_date || null, req.user.id, primaryAssignee, drive_link || null, drive_link_raw || null, effectiveApprovalLink, filesJson, approval_text || null, publish_date || null, publish_objective || null, sequential_subtasks ? 1 : 0)</antml_parameter>
+</invoke>
   setAssignees(result.lastInsertRowid, assigneeIds)
   db.prepare('INSERT INTO task_history (task_id, to_stage, user_id) VALUES (?, ?, ?)').run(result.lastInsertRowid, 'backlog', req.user.id)
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(result.lastInsertRowid)
@@ -576,7 +577,7 @@ router.put('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) => 
     if (!isAssignee && task.assigned_to !== req.user.id) return res.status(403).json({ error: 'Sem permissao' })
   }
 
-  const { title, description, due_date, priority, department_id, assigned_to, drive_link, drive_link_raw, category_id, approval_link, approval_text, approval_files, publish_date, publish_objective, meeting_datetime, recording_datetime, client_id } = req.body
+  const { title, description, due_date, priority, department_id, assigned_to, drive_link, drive_link_raw, category_id, approval_link, approval_text, approval_files, publish_date, publish_objective, meeting_datetime, recording_datetime, client_id, sequential_subtasks } = req.body
   const sets = []; const params = []
   // Trocar cliente: so dono/gerente. Funcionario nao pode.
   if (client_id !== undefined && (req.user.role === 'dono' || req.user.role === 'gerente')) {
@@ -596,6 +597,7 @@ router.put('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) => 
   if (drive_link !== undefined) { sets.push('drive_link = ?'); params.push(drive_link) }
   if (drive_link_raw !== undefined) { sets.push('drive_link_raw = ?'); params.push(drive_link_raw) }
   if (category_id !== undefined) { sets.push('category_id = ?'); params.push(category_id) }
+  if (sequential_subtasks !== undefined) { sets.push('sequential_subtasks = ?'); params.push(sequential_subtasks ? 1 : 0) }
   // approval_files (array) — quando enviado, escreve JSON e sincroniza approval_link com o primeiro item
   if (approval_files !== undefined) {
     const filesArr = Array.isArray(approval_files) ? approval_files.filter(s => s && String(s).trim()) : []
@@ -663,6 +665,44 @@ router.put('/:id/stage', (req, res) => {
   // Editorial workflow: Reuniao Aprovacao Cliente Briefing -> concluido requires recording_datetime
   if (stage === 'concluido' && task.subtask_kind === 'aprov_briefing' && !task.recording_datetime) {
     return res.status(400).json({ error: 'Preencha a Data e Hora da Gravacao antes de concluir esta etapa.' })
+  }
+
+  // Regra: tarefa MAE nao pode ser concluida manualmente enquanto tem subtarefas ativas em aberto.
+  // Ela so fecha via auto-close (quando a ultima sub termina). Vale sempre pra maes, nao depende
+  // de sequential_subtasks.
+  if (stage === 'concluido' && !task.parent_task_id && (task.task_type === 'mae' || task.task_type === 'mae_editorial')) {
+    const abertas = db.prepare(`
+      SELECT COUNT(*) as c FROM tasks
+      WHERE parent_task_id = ? AND is_active = 1 AND stage != 'concluido' AND stage != 'rejeitado'
+    `).get(task.id).c
+    if (abertas > 0) {
+      return res.status(400).json({
+        error: `Esta tarefa mae ainda tem ${abertas} subtarefa(s) em aberto. Conclua ou rejeite cada uma antes de fechar a mae — ela fecha sozinha quando a ultima terminar.`,
+      })
+    }
+  }
+
+  // Sequential subtasks: se a mae tem sequential_subtasks=1, so pode concluir esta subtarefa
+  // se todas com subtask_position < currentPos estiverem concluidas (ou rejeitadas).
+  if (stage === 'concluido' && task.parent_task_id) {
+    const mae = db.prepare('SELECT sequential_subtasks FROM tasks WHERE id = ?').get(task.parent_task_id)
+    if (mae && mae.sequential_subtasks === 1) {
+      const currentPos = task.subtask_position || 0
+      const blocking = db.prepare(`
+        SELECT id, title, subtask_position
+        FROM tasks
+        WHERE parent_task_id = ? AND is_active = 1
+          AND (subtask_position || 0) < ?
+          AND stage != 'concluido' AND stage != 'rejeitado'
+        ORDER BY subtask_position LIMIT 1
+      `).get(task.parent_task_id, currentPos)
+      if (blocking) {
+        return res.status(400).json({
+          error: `Nao pode concluir agora. A subtarefa "${blocking.title}" (posicao ${blocking.subtask_position}) precisa ser concluida antes desta.`,
+          blocked_by: { id: blocking.id, title: blocking.title, subtask_position: blocking.subtask_position },
+        })
+      }
+    }
   }
 
   db.prepare("UPDATE tasks SET stage = ?, updated_at = datetime('now', '-3 hours') WHERE id = ?").run(stage, task.id)

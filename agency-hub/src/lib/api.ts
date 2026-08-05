@@ -47,6 +47,7 @@ export interface Task {
   recording_datetime?: string | null; briefing_content?: string | null
   changes_requested?: string | null
   template_id?: number | null   // preenchido quando a task foi criada por uma recorrencia
+  sequential_subtasks?: number  // 1 = subtarefas precisam ser concluidas em ordem (so faz sentido em mae)
   subtask_count?: number; subtask_done_count?: number
   assignees?: { user_id: number; name: string }[]
   subtasks?: Task[]
@@ -167,6 +168,7 @@ export interface TaskTemplate {
   // 'auto' = cron cria sempre na data marcada (comportamento antigo, mesmo com pendentes).
   // 'on_complete' = cria proxima apenas quando a instancia anterior for concluida.
   mode?: 'auto' | 'on_complete'
+  sequential_subtasks?: number  // propaga pra tarefa mae criada (subtarefas em ordem)
   last_run_at: string | null
   next_run_at: string | null
   created_by: number | null

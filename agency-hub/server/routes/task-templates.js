@@ -60,6 +60,7 @@ router.post('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
   const nextRunAt = computeNextRunAt(b.recurrence_type, +b.recurrence_day, +b.recurrence_hour || 6)
 
   const mode = b.mode === 'on_complete' ? 'on_complete' : 'auto'
+  const sequentialSubtasks = b.sequential_subtasks ? 1 : 0
 
   const tx = db.transaction(() => {
     const result = db.prepare(`
@@ -69,8 +70,8 @@ router.post('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
         drive_link, drive_link_raw, approval_link, approval_files, approval_text,
         publish_date, publish_objective,
         due_date_offset_days, recurrence_type, recurrence_day, recurrence_hour,
-        next_run_at, created_by, mode
-      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        next_run_at, created_by, mode, sequential_subtasks
+      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       b.name, b.task_type || 'normal', +b.client_id,
       b.category_id || null, b.department_id || null,
@@ -78,7 +79,7 @@ router.post('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
       b.drive_link || null, b.drive_link_raw || null, effectiveApprovalLink, filesJson, b.approval_text || null,
       b.publish_date || null, b.publish_objective || null,
       +b.due_date_offset_days || 7, b.recurrence_type, +b.recurrence_day, +b.recurrence_hour || 6,
-      nextRunAt, req.user.id, mode
+      nextRunAt, req.user.id, mode, sequentialSubtasks
     )
     const tplId = result.lastInsertRowid
 
@@ -178,6 +179,7 @@ router.put('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) => 
         recurrence_type = ?, recurrence_day = ?, recurrence_hour = ?,
         next_run_at = ?,
         mode = COALESCE(?, mode),
+        sequential_subtasks = COALESCE(?, sequential_subtasks),
         updated_at = datetime('now', '-3 hours')
       WHERE id = ?
     `).run(
@@ -194,6 +196,7 @@ router.put('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) => 
       newType, newDay, newHour,
       nextRunAt,
       b.mode === 'on_complete' || b.mode === 'auto' ? b.mode : null,
+      b.sequential_subtasks != null ? (b.sequential_subtasks ? 1 : 0) : null,
       tplId
     )
 
