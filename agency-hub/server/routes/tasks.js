@@ -288,8 +288,7 @@ router.post('/mae', requireRole('dono', 'gerente', 'funcionario'), (req, res) =>
   const result = db.prepare(`
     INSERT INTO tasks (client_id, category_id, department_id, title, description, priority, due_date, created_by, stage, task_type, assigned_to, drive_link, drive_link_raw, approval_link, approval_files, approval_text, publish_date, publish_objective, sequential_subtasks)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'backlog', 'mae', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(client_id, category_id || null, department_id || null, title, description || null, priority || 'normal', due_date || null, req.user.id, primaryAssignee, drive_link || null, drive_link_raw || null, effectiveApprovalLink, filesJson, approval_text || null, publish_date || null, publish_objective || null, sequential_subtasks ? 1 : 0)</antml_parameter>
-</invoke>
+  `).run(client_id, category_id || null, department_id || null, title, description || null, priority || 'normal', due_date || null, req.user.id, primaryAssignee, drive_link || null, drive_link_raw || null, effectiveApprovalLink, filesJson, approval_text || null, publish_date || null, publish_objective || null, sequential_subtasks ? 1 : 0)
   setAssignees(result.lastInsertRowid, assigneeIds)
   db.prepare('INSERT INTO task_history (task_id, to_stage, user_id) VALUES (?, ?, ?)').run(result.lastInsertRowid, 'backlog', req.user.id)
   const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(result.lastInsertRowid)
