@@ -544,29 +544,81 @@ export default function ClientDetail() {
           {onboardLoading ? (
             <div className="loading-container"><div className="spinner" /></div>
           ) : onboardEntries.length > 0 ? (
-            onboardEntries.map((entry, idx) => (
-              <div className="card" key={entry.id} style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <CheckCircle size={16} style={{ color: '#34C759' }} />
-                    <h3 style={{ fontSize: 14, fontWeight: 600 }}>Resposta {onboardEntries.length > 1 ? `#${onboardEntries.length - idx}` : ''}</h3>
+            onboardEntries.map((entry, idx) => {
+              // Agrupamento em secoes baseado nas keys mais comuns
+              const SECTIONS: { title: string; keys: string[] }[] = [
+                { title: 'Contato',       keys: ['seu_nome', 'nome', 'whatsapp', 'telefone', 'email', 'cidade', 'estado'] },
+                { title: 'Negocio',       keys: ['o_que_vende', 'tempo_mercado', 'quem_compra'] },
+                { title: 'Cliente ideal', keys: ['descreva_cliente', 'por_que_compram', 'por_que_nao_compram', 'objecoes'] },
+                { title: 'Atendimento',   keys: ['como_chega', 'quem_atende', 'como_registra', 'demora_responder', 'faz_followup'] },
+                { title: 'Financeiro',    keys: ['faturamento_mes', 'ticket_medio', 'vendas_mes', 'meta_faturamento'] },
+                { title: 'Concorrentes',  keys: ['concorrentes', 'diferencial', 'preco_vs_concorrente'] },
+              ]
+              const data = entry.data as Record<string, string>
+              const allEntries = Object.entries(data).filter(([_, v]) => v && String(v).trim())
+              // Descobre em qual secao cada key entra + acumula "outros" pra keys nao mapeadas
+              const usedKeys = new Set<string>()
+              const sectionData = SECTIONS.map(sec => {
+                const items = sec.keys
+                  .map(k => {
+                    const val = data[k]
+                    if (val && String(val).trim()) { usedKeys.add(k); return [k, val] as [string, string] }
+                    return null
+                  })
+                  .filter(Boolean) as [string, string][]
+                return { ...sec, items }
+              }).filter(s => s.items.length > 0)
+              const otherItems = allEntries.filter(([k]) => !usedKeys.has(k) && !k.startsWith('acesso_'))
+              const accessItems = allEntries.filter(([k]) => k.startsWith('acesso_'))
+              if (otherItems.length > 0) sectionData.push({ title: 'Outros', keys: [], items: otherItems })
+              if (accessItems.length > 0) sectionData.push({ title: 'Acessos', keys: [], items: accessItems })
+
+              const formatLabel = (k: string) => k.replace(/^acesso_/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+              const isLongText = (v: string) => v.length > 80 || v.includes('\n')
+
+              return (
+                <div className="card" key={entry.id} style={{ marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, paddingBottom: 14, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <CheckCircle size={16} style={{ color: '#34C759' }} />
+                      <h3 style={{ fontSize: 14, fontWeight: 600 }}>Resposta {onboardEntries.length > 1 ? `#${onboardEntries.length - idx}` : ''}</h3>
+                    </div>
+                    <span style={{ fontSize: 11, color: '#6E6887' }}>{new Date(entry.created_at).toLocaleString('pt-BR')}</span>
                   </div>
-                  <span style={{ fontSize: 11, color: '#6E6887' }}>{new Date(entry.created_at).toLocaleString('pt-BR')}</span>
-                </div>
-                <div className="lead-info">
-                  {Object.entries(entry.data as Record<string, string>).map(([key, val]) => {
-                    if (!val) return null
-                    const label = key.replace(/_/g, ' ').replace(/^acesso /, 'Acesso: ').replace(/\b\w/g, (c: string) => c.toUpperCase())
-                    return (
-                      <div key={key} className="lead-info-row">
-                        <span className="lead-info-label">{label}</span>
-                        <span className="lead-info-value" style={{ whiteSpace: 'pre-wrap' }}>{String(val)}</span>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+                    {sectionData.map(sec => (
+                      <div key={sec.title}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.12em', color: '#FFB300', marginBottom: 10 }}>
+                          {sec.title}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 }}>
+                          {sec.items.map(([key, val]) => {
+                            const long = isLongText(String(val))
+                            return (
+                              <div key={key} style={{
+                                padding: '10px 12px',
+                                background: 'rgba(255,255,255,0.025)',
+                                borderRadius: 8,
+                                border: '1px solid rgba(255,255,255,0.05)',
+                                gridColumn: long ? '1 / -1' : 'auto',
+                              }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', color: '#9B96B0', marginBottom: 4 }}>
+                                  {formatLabel(key)}
+                                </div>
+                                <div style={{ fontSize: 13, color: '#fff', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                  {String(val)}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
-                    )
-                  })}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))
+              )
+            })
           ) : (
             <div className="card" style={{ textAlign: 'center', padding: 32, color: '#9B96B0' }}>
               <FileText size={32} style={{ marginBottom: 8, opacity: 0.4 }} />
