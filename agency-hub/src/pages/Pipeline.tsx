@@ -560,7 +560,7 @@ export default function Pipeline() {
           </div>
           <div className="form-row">
             <div className="form-group"><label>Prazo</label><input className="input" type="date" value={newMae.due_date} onChange={e => setNewMae(p => ({ ...p, due_date: e.target.value }))} /></div>
-            <div className="form-group"><label>Prioridade</label><select className="select" value={newMae.priority} onChange={e => setNewMae(p => ({ ...p, priority: e.target.value }))}><option value="baixa">Baixa</option><option value="normal">Normal</option><option value="alta">Alta</option><option value="urgente">Urgente</option></select></div>
+            <div className="form-group"><label>Prioridade</label><select className="select" value={newMae.priority} onChange={e => setNewMae(p => ({ ...p, priority: e.target.value }))}><option value="low">Baixa</option><option value="normal">Normal</option><option value="high">Alta</option><option value="urgent">Urgente</option></select></div>
           </div>
           <div className="form-row">
             <div className="form-group"><label>Link Drive (Arquivo Bruto)</label><input className="input" value={newMae.drive_link_raw} onChange={e => setNewMae(p => ({ ...p, drive_link_raw: e.target.value }))} placeholder="https://drive.google.com/..." /></div>

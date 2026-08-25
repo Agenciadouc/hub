@@ -1058,7 +1058,7 @@ export default function TaskDetail() {
             </div>
             <div className="form-row">
               <div className="form-group"><label>Prazo</label><input className="input" type="date" value={newSub.due_date} onChange={e => setNewSub(p => ({ ...p, due_date: e.target.value }))} /></div>
-              <div className="form-group"><label>Prioridade</label><select className="select" value={newSub.priority} onChange={e => setNewSub(p => ({ ...p, priority: e.target.value }))}><option value="baixa">Baixa</option><option value="normal">Normal</option><option value="alta">Alta</option><option value="urgente">Urgente</option></select></div>
+              <div className="form-group"><label>Prioridade</label><select className="select" value={newSub.priority} onChange={e => setNewSub(p => ({ ...p, priority: e.target.value }))}><option value="low">Baixa</option><option value="normal">Normal</option><option value="high">Alta</option><option value="urgent">Urgente</option></select></div>
             </div>
             <div className="form-row">
               <div className="form-group"><label>Link Drive (Arquivo Bruto)</label><input className="input" value={newSub.drive_link_raw} onChange={e => setNewSub(p => ({ ...p, drive_link_raw: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
