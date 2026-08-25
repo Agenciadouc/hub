@@ -104,8 +104,10 @@ export default function Pipeline() {
     const task = tasks.find(t => t.id === draggedTask)
     if (!task || task.stage === stageSlug) return
     if ((stageSlug === 'aprovacao_interna' || stageSlug === 'aguardando_cliente') && !task.approval_link) {
-      alert('Preencha o "Conteudo para Aprovacao" na tarefa antes de enviar pra aprovacao.\n\nAbra a tarefa, clique em Editar e preencha o link na secao dourada.')
-      setDraggedTask(null); return
+      toast('Abra a tarefa e clique em "Enviar pra aprovacao" pra preencher o conteudo (link, legenda, data).', 'error')
+      setDraggedTask(null)
+      navigate(`/tasks/${task.id}`)
+      return
     }
     setTasks(prev => prev.map(t => t.id === draggedTask ? { ...t, stage: stageSlug } : t))
     setDraggedTask(null)
@@ -181,8 +183,10 @@ export default function Pipeline() {
   const handleMobileMove = async (taskId: number, stageSlug: string) => {
     const task = tasks.find(t => t.id === taskId)
     if ((stageSlug === 'aprovacao_interna' || stageSlug === 'aguardando_cliente') && task && !task.approval_link) {
-      alert('Preencha o "Conteudo para Aprovacao" na tarefa antes de enviar pra aprovacao.\n\nAbra a tarefa, clique em Editar e preencha o link na secao dourada.')
-      setMoveTaskId(null); return
+      toast('Abra a tarefa e clique em "Enviar pra aprovacao" pra preencher o conteudo.', 'error')
+      setMoveTaskId(null)
+      navigate(`/tasks/${task.id}`)
+      return
     }
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, stage: stageSlug } : t))
     setMoveTaskId(null)
@@ -426,45 +430,7 @@ export default function Pipeline() {
             <div className="form-group"><label>Link Drive (Arquivo Bruto)</label><input className="input" value={newTask.drive_link_raw} onChange={e => setNewTask(p => ({ ...p, drive_link_raw: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
             <div className="form-group"><label>Link Drive (Arquivo Pronto)</label><input className="input" value={newTask.drive_link} onChange={e => setNewTask(p => ({ ...p, drive_link: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
           </div>
-          <div style={{ padding: '14px 16px', background: 'rgba(245,166,35,0.04)', border: '1px solid rgba(245,166,35,0.12)', borderRadius: 10, marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#F5A623', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Conteudo para Aprovacao (opcional)</div>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#A8A3B8', cursor: 'pointer' }}>
-                <input type="checkbox" checked={newTaskIsCarrossel} onChange={e => {
-                  const checked = e.target.checked
-                  if (checked) {
-                    setNewTaskIsCarrossel(true)
-                    setNewTaskFiles(newTask.approval_link ? [newTask.approval_link] : [''])
-                  } else {
-                    setNewTaskIsCarrossel(false)
-                    setNewTask(p => ({ ...p, approval_link: newTaskFiles[0] || '' }))
-                  }
-                }} style={{ accentColor: '#FFB300' }} />
-                Carrossel (varios arquivos)
-              </label>
-            </div>
-            {newTaskIsCarrossel ? (
-              <div className="form-group">
-                <label>Arquivos do carrossel</label>
-                {newTaskFiles.map((url, idx) => (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <span style={{ minWidth: 56, fontSize: 11, color: '#6B6580', fontWeight: 700 }}>Slide {idx + 1}</span>
-                    <input className="input" value={url} placeholder="Link do Drive (publico)" style={{ flex: 1 }} onChange={e => setNewTaskFiles(arr => arr.map((x, i) => i === idx ? e.target.value : x))} />
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewTaskFiles(arr => arr.filter((_, i) => i !== idx))} title="Remover" style={{ padding: '6px 10px' }}><X size={12} /></button>
-                  </div>
-                ))}
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewTaskFiles(arr => [...arr, ''])} style={{ marginTop: 4 }}><Plus size={12} /> Adicionar slide</button>
-                <small style={{ fontSize: 11, color: '#6B6580', marginTop: 6, display: 'block' }}>Cada link vira um slide pro cliente ver. Precisam ser publicos no Drive.</small>
-              </div>
-            ) : (
-              <div className="form-group"><label>Link do arquivo finalizado</label><input className="input" value={newTask.approval_link} onChange={e => setNewTask(p => ({ ...p, approval_link: e.target.value }))} placeholder="Link do Drive — compartilhamento: qualquer pessoa com o link" /><small style={{ fontSize: 11, color: '#6B6580', marginTop: 4, display: 'block' }}>O cliente vai ver o video/imagem embutido. Precisa estar publico no Drive.</small></div>
-            )}
-            <div className="form-group"><label>Texto / Legenda</label><textarea className="input" rows={3} value={newTask.approval_text} onChange={e => setNewTask(p => ({ ...p, approval_text: e.target.value }))} placeholder="Legenda do post, texto da publicacao, descricao..." /></div>
-            <div className="form-row">
-              <div className="form-group"><label>Data da Publicacao</label><input className="input" type="date" value={newTask.publish_date} onChange={e => setNewTask(p => ({ ...p, publish_date: e.target.value }))} /></div>
-              <div className="form-group"><label>Objetivo da Publicacao</label><input className="input" value={newTask.publish_objective} onChange={e => setNewTask(p => ({ ...p, publish_objective: e.target.value }))} placeholder="Ex: Gerar leads, engajamento..." /></div>
-            </div>
-          </div>
+          {/* Conteudo pra aprovacao — pedido em popup quando mover a tarefa pra 'Aguardando Cliente' */}
           {/* Show recording date/time fields when dept is Captacao */}
           {(() => {
             const selDept = departments.find(d => String(d.id) === newTask.department_id)
@@ -566,39 +532,7 @@ export default function Pipeline() {
             <div className="form-group"><label>Link Drive (Arquivo Bruto)</label><input className="input" value={newMae.drive_link_raw} onChange={e => setNewMae(p => ({ ...p, drive_link_raw: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
             <div className="form-group"><label>Link Drive (Arquivo Pronto)</label><input className="input" value={newMae.drive_link} onChange={e => setNewMae(p => ({ ...p, drive_link: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
           </div>
-          <div style={{ padding: '14px 16px', background: 'rgba(245,166,35,0.04)', border: '1px solid rgba(245,166,35,0.12)', borderRadius: 10, marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#F5A623', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Conteudo para Aprovacao (opcional)</div>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#A8A3B8', cursor: 'pointer' }}>
-                <input type="checkbox" checked={newMaeIsCarrossel} onChange={e => {
-                  const checked = e.target.checked
-                  if (checked) { setNewMaeIsCarrossel(true); setNewMaeFiles(newMae.approval_link ? [newMae.approval_link] : ['']) }
-                  else { setNewMaeIsCarrossel(false); setNewMae(p => ({ ...p, approval_link: newMaeFiles[0] || '' })) }
-                }} style={{ accentColor: '#FFB300' }} />
-                Carrossel (varios arquivos)
-              </label>
-            </div>
-            {newMaeIsCarrossel ? (
-              <div className="form-group">
-                <label>Arquivos do carrossel</label>
-                {newMaeFiles.map((url, idx) => (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <span style={{ minWidth: 56, fontSize: 11, color: '#6B6580', fontWeight: 700 }}>Slide {idx + 1}</span>
-                    <input className="input" value={url} placeholder="Link do Drive (publico)" style={{ flex: 1 }} onChange={e => setNewMaeFiles(arr => arr.map((x, i) => i === idx ? e.target.value : x))} />
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewMaeFiles(arr => arr.filter((_, i) => i !== idx))} title="Remover" style={{ padding: '6px 10px' }}><X size={12} /></button>
-                  </div>
-                ))}
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewMaeFiles(arr => [...arr, ''])} style={{ marginTop: 4 }}><Plus size={12} /> Adicionar slide</button>
-              </div>
-            ) : (
-              <div className="form-group"><label>Link do arquivo finalizado</label><input className="input" value={newMae.approval_link} onChange={e => setNewMae(p => ({ ...p, approval_link: e.target.value }))} placeholder="Link do Drive — compartilhamento: qualquer pessoa com o link" /></div>
-            )}
-            <div className="form-group"><label>Texto / Legenda</label><textarea className="input" rows={3} value={newMae.approval_text} onChange={e => setNewMae(p => ({ ...p, approval_text: e.target.value }))} placeholder="Legenda do post, texto da publicacao..." /></div>
-            <div className="form-row">
-              <div className="form-group"><label>Data da Publicacao</label><input className="input" type="date" value={newMae.publish_date} onChange={e => setNewMae(p => ({ ...p, publish_date: e.target.value }))} /></div>
-              <div className="form-group"><label>Objetivo da Publicacao</label><input className="input" value={newMae.publish_objective} onChange={e => setNewMae(p => ({ ...p, publish_objective: e.target.value }))} placeholder="Ex: Gerar leads..." /></div>
-            </div>
-          </div>
+          {/* Conteudo pra aprovacao — pedido em popup quando mover a tarefa pra 'Aguardando Cliente' */}
           <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setShowNewMae(false)}>Cancelar</button><button className="btn btn-primary" onClick={handleCreateMae} disabled={saving || !newMae.title || !newMae.client_id}>{saving ? 'Criando...' : 'Criar Tarefa Mae'}</button></div>
         </div></div>
       )}
