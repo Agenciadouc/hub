@@ -122,6 +122,7 @@ export const createEditorialTask = (data: { client_id: number; month_label: stri
 export const createMaeTask = (data: { client_id: number; title: string; description?: string; due_date?: string; category_id?: number; department_id?: number; priority?: string; assigned_to?: number[]; drive_link?: string; drive_link_raw?: string; approval_link?: string; approval_files?: string[]; approval_text?: string; publish_date?: string; publish_objective?: string }) => apiFetch<{ task: Task }>('/api/tasks/mae', { method: 'POST', body: JSON.stringify(data) }).then(d => d.task)
 export const addSubtask = (parentId: number, data: { title: string; description?: string; due_date?: string; category_id?: number; department_id?: number; priority?: string; assigned_to?: number | number[]; drive_link?: string; drive_link_raw?: string; approval_link?: string; approval_files?: string[]; approval_text?: string; publish_date?: string; publish_objective?: string }) => apiFetch<{ subtask: Task }>(`/api/tasks/${parentId}/subtasks`, { method: 'POST', body: JSON.stringify(data) }).then(d => d.subtask)
 export const convertTaskToMae = (id: number) => apiFetch<{ task: Task }>(`/api/tasks/${id}/convert-to-mae`, { method: 'POST' }).then(d => d.task)
+export const saveTaskAsTemplate = (id: number, name?: string) => apiFetch<{ template: any; subtasks_copied: number }>(`/api/tasks/${id}/save-as-template`, { method: 'POST', body: JSON.stringify(name ? { name } : {}) })
 
 // ---------- Task Templates (recorrencia) ----------
 export interface TaskTemplateSubtask {

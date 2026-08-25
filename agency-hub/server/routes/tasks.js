@@ -320,6 +320,77 @@ router.post('/:id/subtasks', requireRole('dono', 'gerente', 'funcionario'), (req
   res.json({ subtask })
 })
 
+// Save an existing task (idealmente mae com subtarefas) como task_template
+// no modo biblioteca (is_recurring=0). Copia titulo, dept, priority, assignees + subs.
+// Body opcional: { name?: string } — override do nome do modelo (default = task.title)
+router.post('/:id/save-as-template', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id)
+  if (!task) return res.status(404).json({ error: 'Tarefa nao encontrada' })
+  if (task.parent_task_id) return res.status(400).json({ error: 'Nao da pra salvar uma subtarefa como modelo — use a tarefa mae' })
+  const templateName = (req.body?.name || task.title).trim()
+  if (!templateName) return res.status(400).json({ error: 'nome do modelo obrigatorio' })
+
+  const taskType = (task.task_type === 'mae' || task.task_type === 'mae_editorial') ? 'mae' : 'normal'
+  const rootAssignees = db.prepare('SELECT user_id FROM task_assignees WHERE task_id = ?').all(task.id).map(r => r.user_id)
+  const subs = taskType === 'mae'
+    ? db.prepare('SELECT * FROM tasks WHERE parent_task_id = ? ORDER BY subtask_position, id').all(task.id)
+    : []
+
+  const tx = db.transaction(() => {
+    // Cria o template com is_recurring=0 (biblioteca — sem cron)
+    const r = db.prepare(`
+      INSERT INTO task_templates (
+        name, is_active, is_recurring, task_type, client_id, category_id, department_id,
+        title, description, priority,
+        drive_link, drive_link_raw, approval_link, approval_files, approval_text,
+        publish_date, publish_objective,
+        due_date_offset_days, recurrence_type, recurrence_day, recurrence_hour,
+        next_run_at, created_by, mode, sequential_subtasks
+      ) VALUES (?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'monthly', 1, 6, NULL, ?, 'on_complete', ?)
+    `).run(
+      templateName, taskType, task.client_id,
+      task.category_id || null, task.department_id || null,
+      task.title, task.description || null, task.priority || 'normal',
+      task.drive_link || null, task.drive_link_raw || null,
+      task.approval_link || null, task.approval_files || null, task.approval_text || null,
+      task.publish_date || null, task.publish_objective || null,
+      7, req.user.id, task.sequential_subtasks ? 1 : 0
+    )
+    const tplId = r.lastInsertRowid
+    const insertRootAssignee = db.prepare('INSERT OR IGNORE INTO task_template_assignees (template_id, user_id) VALUES (?, ?)')
+    rootAssignees.forEach(uid => insertRootAssignee.run(tplId, uid))
+
+    if (taskType === 'mae' && subs.length > 0) {
+      const insertSub = db.prepare(`
+        INSERT INTO task_template_subtasks (
+          template_id, subtask_position, title, description, priority,
+          category_id, department_id, due_date_offset_days,
+          drive_link, drive_link_raw, approval_link, approval_files, approval_text,
+          publish_date, publish_objective
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      const insertSubAssignee = db.prepare('INSERT OR IGNORE INTO task_template_subtask_assignees (template_subtask_id, user_id) VALUES (?, ?)')
+      subs.forEach((s, idx) => {
+        const sr = insertSub.run(
+          tplId, s.subtask_position != null ? s.subtask_position : idx + 1,
+          s.title, s.description || null, s.priority || 'normal',
+          s.category_id || null, s.department_id || null, null,
+          s.drive_link || null, s.drive_link_raw || null,
+          s.approval_link || null, s.approval_files || null, s.approval_text || null,
+          s.publish_date || null, s.publish_objective || null
+        )
+        const subTplId = sr.lastInsertRowid
+        const subAssignees = db.prepare('SELECT user_id FROM task_assignees WHERE task_id = ?').all(s.id).map(rr => rr.user_id)
+        subAssignees.forEach(uid => insertSubAssignee.run(subTplId, uid))
+      })
+    }
+    return tplId
+  })
+  const tplId = tx()
+  const created = db.prepare('SELECT * FROM task_templates WHERE id = ?').get(tplId)
+  res.json({ template: created, subtasks_copied: subs.length })
+})
+
 // Convert a normal task INTO a mae — permite adicionar subtarefas depois
 // Regras: task tem que ser 'normal' (ou sem type) E nao pode ser ela mesma uma subtarefa
 router.post('/:id/convert-to-mae', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {

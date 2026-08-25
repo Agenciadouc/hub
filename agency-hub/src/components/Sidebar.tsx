@@ -79,7 +79,7 @@ export default function Sidebar() {
             <ListTodo size={16} /> {isCliente ? 'Minhas Tarefas' : 'Tarefas'}
             {overdueCount > 0 && (isDono || isGerente) && <span className="nav-badge" style={{ background: '#FF6B6B' }}>{overdueCount}</span>}
           </NavLink>
-          {(isDono || isGerente) && (
+          {!isCliente && (
             <NavLink to="/tarefas-recorrentes" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`} onClick={close}>
               <Repeat size={16} /> Recorrencias
             </NavLink>

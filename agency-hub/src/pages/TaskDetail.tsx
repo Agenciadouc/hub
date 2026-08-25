@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useSSE } from '../context/SSEContext'
-import { fetchTask, fetchClients, fetchDepartments, fetchUsers, fetchCategories, fetchStages, updateTask, moveTaskStage, addTaskComment, addTaskAttachment, deleteTaskAttachment, approveTask, rejectTask, startTimer, stopTimer, confirmRecording, addSubtask, getApprovalFiles, convertTaskToMae, type Task, type TaskComment, type TaskHistory, type TaskAttachment, type TimeEntry, type Client, type Department, type User as UserT, type TaskCategory, type PipelineStage } from '../lib/api'
+import { fetchTask, fetchClients, fetchDepartments, fetchUsers, fetchCategories, fetchStages, updateTask, moveTaskStage, addTaskComment, addTaskAttachment, deleteTaskAttachment, approveTask, rejectTask, startTimer, stopTimer, confirmRecording, addSubtask, getApprovalFiles, convertTaskToMae, saveTaskAsTemplate, type Task, type TaskComment, type TaskHistory, type TaskAttachment, type TimeEntry, type Client, type Department, type User as UserT, type TaskCategory, type PipelineStage } from '../lib/api'
 import { isDriveUrl, toDriveEmbedUrl } from '../lib/drive'
 import { ArrowLeft, Building2, Clock, User, ExternalLink, CheckCircle, XCircle, Send, MessageCircle, GitBranch, Paperclip, Eye, Edit3, Save, X, Plus, AlertTriangle, Layers, ChevronRight, ChevronDown, Video, Trash2, FileText } from 'lucide-react'
 import { useToast } from '../components/Toast'
@@ -264,6 +264,19 @@ export default function TaskDetail() {
       loadTask()
       toast('Tarefa convertida em mae — agora voce pode adicionar subtarefas')
     } catch (err: any) { toast(err.message || 'Erro ao converter', 'error') }
+  }
+
+  const handleSaveAsTemplate = async () => {
+    if (!task) return
+    const suggested = task.title
+    const name = window.prompt('Nome do modelo (aparece no botao "Usar modelo"):', suggested)
+    if (name == null) return
+    const finalName = name.trim() || suggested
+    try {
+      const r = await saveTaskAsTemplate(task.id, finalName)
+      const subInfo = r.subtasks_copied > 0 ? ` com ${r.subtasks_copied} subtarefa${r.subtasks_copied > 1 ? 's' : ''}` : ''
+      toast(`Modelo "${finalName}" salvo${subInfo}. Disponivel em "Usar modelo" e em Recorrencias.`)
+    } catch (err: any) { toast(err.message || 'Erro ao salvar modelo', 'error') }
   }
 
   const startEditSub = (sub: any) => {
@@ -533,10 +546,15 @@ export default function TaskDetail() {
           <div className="card" style={{ marginBottom: 16 }}>
             {/* Edit toggle */}
             {canEdit && !editing && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 6, flexWrap: 'wrap' }}>
                 {(!task.task_type || task.task_type === 'normal') && !(task as any).parent_task_id && (
                   <button className="btn btn-secondary btn-sm" onClick={handleConvertToMae} title="Converte esta tarefa em mae — permite adicionar subtarefas" style={{ color: '#FFB300', borderColor: 'rgba(255,179,0,0.35)' }}>
                     <Layers size={12} /> Tornar mae
+                  </button>
+                )}
+                {!(task as any).parent_task_id && (
+                  <button className="btn btn-secondary btn-sm" onClick={handleSaveAsTemplate} title="Salva esta tarefa como modelo — reutilizavel em novas tarefas" style={{ color: '#7ee787', borderColor: 'rgba(126,231,135,0.35)' }}>
+                    <FileText size={12} /> Salvar como modelo
                   </button>
                 )}
                 <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}><Edit3 size={12} /> Editar</button>
