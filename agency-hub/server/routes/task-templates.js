@@ -23,15 +23,25 @@ function loadFullTemplate(id) {
 }
 
 // GET / — lista todos os templates (com nomes de cliente e count de subtarefas)
+// Query: ?is_recurring=1 (so recorrentes) | ?is_recurring=0 (so biblioteca) | omite (todos)
+// Query: ?client_id=X (pra popular botao 'Usar modelo' filtrando por cliente)
 router.get('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
+  const conds = []
+  const params = []
+  if (req.query.is_recurring === '0') { conds.push('t.is_recurring = 0'); }
+  else if (req.query.is_recurring === '1') { conds.push('t.is_recurring = 1'); }
+  if (req.query.client_id) { conds.push('t.client_id = ?'); params.push(+req.query.client_id) }
+  if (req.query.only_active === '1') { conds.push('t.is_active = 1') }
+  const where = conds.length > 0 ? 'WHERE ' + conds.join(' AND ') : ''
   const templates = db.prepare(`
     SELECT t.*,
       c.name as client_name,
       (SELECT COUNT(*) FROM task_template_subtasks WHERE template_id = t.id) as subtasks_count
     FROM task_templates t
     LEFT JOIN clients c ON c.id = t.client_id
-    ORDER BY t.is_active DESC, t.next_run_at ASC, t.name
-  `).all()
+    ${where}
+    ORDER BY t.is_active DESC, t.is_recurring DESC, t.next_run_at ASC, t.name
+  `).all(...params)
   res.json({ templates })
 })
 
@@ -46,18 +56,29 @@ router.get('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) => 
 router.post('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
   try {
   const b = req.body
-  if (!b.name || !b.client_id || !b.title || !b.recurrence_type || !b.recurrence_day) {
-    return res.status(400).json({ error: 'name, client_id, title, recurrence_type, recurrence_day obrigatorios' })
+  // is_recurring=0 → biblioteca de modelo (sem cron, recurrence opcional)
+  const isRecurring = b.is_recurring === 0 || b.is_recurring === false ? 0 : 1
+  if (!b.name || !b.client_id || !b.title) {
+    return res.status(400).json({ error: 'name, client_id, title obrigatorios' })
   }
-  if (!['weekly', 'monthly'].includes(b.recurrence_type)) {
-    return res.status(400).json({ error: 'recurrence_type deve ser weekly ou monthly' })
+  if (isRecurring) {
+    if (!b.recurrence_type || !b.recurrence_day) {
+      return res.status(400).json({ error: 'Template recorrente exige recurrence_type e recurrence_day' })
+    }
+    if (!['weekly', 'monthly'].includes(b.recurrence_type)) {
+      return res.status(400).json({ error: 'recurrence_type deve ser weekly ou monthly' })
+    }
   }
 
   const filesJson = Array.isArray(b.approval_files) && b.approval_files.length > 0
     ? JSON.stringify(b.approval_files.filter(s => s && String(s).trim()))
     : null
   const effectiveApprovalLink = filesJson ? JSON.parse(filesJson)[0] : (b.approval_link || null)
-  const nextRunAt = computeNextRunAt(b.recurrence_type, +b.recurrence_day, +b.recurrence_hour || 6)
+  // Se nao recorrente, next_run_at = null (scheduler ignora). Se recorrente, calcula normal.
+  const nextRunAt = isRecurring ? computeNextRunAt(b.recurrence_type, +b.recurrence_day, +b.recurrence_hour || 6) : null
+  // Fallback pra recurrence_type/day quando modelo (CREATE TABLE tem NOT NULL — usa dummies)
+  const recType = b.recurrence_type || 'monthly'
+  const recDay = b.recurrence_day != null ? +b.recurrence_day : 1
 
   const mode = b.mode === 'on_complete' ? 'on_complete' : 'auto'
   const sequentialSubtasks = b.sequential_subtasks ? 1 : 0
@@ -65,20 +86,20 @@ router.post('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
   const tx = db.transaction(() => {
     const result = db.prepare(`
       INSERT INTO task_templates (
-        name, is_active, task_type, client_id, category_id, department_id,
+        name, is_active, is_recurring, task_type, client_id, category_id, department_id,
         title, description, priority,
         drive_link, drive_link_raw, approval_link, approval_files, approval_text,
         publish_date, publish_objective,
         due_date_offset_days, recurrence_type, recurrence_day, recurrence_hour,
         next_run_at, created_by, mode, sequential_subtasks
-      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      b.name, b.task_type || 'normal', +b.client_id,
+      b.name, isRecurring, b.task_type || 'normal', +b.client_id,
       b.category_id || null, b.department_id || null,
       b.title, b.description || null, b.priority || 'normal',
       b.drive_link || null, b.drive_link_raw || null, effectiveApprovalLink, filesJson, b.approval_text || null,
       b.publish_date || null, b.publish_objective || null,
-      +b.due_date_offset_days || 7, b.recurrence_type, +b.recurrence_day, +b.recurrence_hour || 6,
+      +b.due_date_offset_days || 7, recType, recDay, +b.recurrence_hour || 6,
       nextRunAt, req.user.id, mode, sequentialSubtasks
     )
     const tplId = result.lastInsertRowid
@@ -122,10 +143,9 @@ router.post('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
 
   const tplId = tx()
 
-  // Se mode=on_complete, ja cria a 1a instancia imediatamente pra usuario ver a tarefa
-  // na lista sem esperar o cron rodar. Idempotente: se falhar, template fica ativo e o
-  // cron pega no proximo tick (que pra on_complete so cria se nao ha pendente — coerente).
-  if (mode === 'on_complete') {
+  // Se mode=on_complete E eh recorrente, ja cria a 1a instancia imediatamente.
+  // Modelos de biblioteca (is_recurring=0) nunca disparam sozinhos — so via botao 'Usar modelo'.
+  if (isRecurring && mode === 'on_complete') {
     try {
       const r = createTaskFromTemplate(tplId, { userId: req.user.id })
       console.log(`[Recurring] template=${tplId} criado em modo on_complete, 1a task=${r.taskId}`)
@@ -145,7 +165,7 @@ router.post('/', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
 router.put('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
   try {
   const tplId = +req.params.id
-  const exists = db.prepare('SELECT id, recurrence_type, recurrence_day, recurrence_hour FROM task_templates WHERE id = ?').get(tplId)
+  const exists = db.prepare('SELECT id, recurrence_type, recurrence_day, recurrence_hour, is_recurring, next_run_at FROM task_templates WHERE id = ?').get(tplId)
   if (!exists) return res.status(404).json({ error: 'Template nao encontrado' })
 
   const b = req.body
@@ -154,12 +174,16 @@ router.put('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) => 
     : null
   const effectiveApprovalLink = filesJson ? JSON.parse(filesJson)[0] : (b.approval_link || null)
 
-  // Recalcula next_run_at se mudou o agendamento
+  // Toggle is_recurring (default: mantem)
+  const isRecurring = b.is_recurring != null ? (b.is_recurring === 0 || b.is_recurring === false ? 0 : 1) : exists.is_recurring
+  // Recalcula next_run_at se mudou o agendamento OU se virou nao-recorrente
   let nextRunAt = exists.next_run_at
   const newType = b.recurrence_type || exists.recurrence_type
   const newDay = b.recurrence_day != null ? +b.recurrence_day : exists.recurrence_day
   const newHour = b.recurrence_hour != null ? +b.recurrence_hour : exists.recurrence_hour
-  if (newType !== exists.recurrence_type || newDay !== exists.recurrence_day || newHour !== exists.recurrence_hour) {
+  if (!isRecurring) {
+    nextRunAt = null // biblioteca — nao roda automatico
+  } else if (newType !== exists.recurrence_type || newDay !== exists.recurrence_day || newHour !== exists.recurrence_hour || !exists.is_recurring) {
     nextRunAt = computeNextRunAt(newType, newDay, newHour)
   }
 
@@ -168,6 +192,7 @@ router.put('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) => 
       UPDATE task_templates SET
         name = COALESCE(?, name),
         is_active = COALESCE(?, is_active),
+        is_recurring = ?,
         task_type = COALESCE(?, task_type),
         client_id = COALESCE(?, client_id),
         category_id = ?, department_id = ?,
@@ -185,6 +210,7 @@ router.put('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) => 
     `).run(
       b.name || null,
       b.is_active != null ? (b.is_active ? 1 : 0) : null,
+      isRecurring,
       b.task_type || null,
       b.client_id ? +b.client_id : null,
       b.category_id || null, b.department_id || null,
@@ -253,9 +279,15 @@ router.delete('/:id', requireRole('dono', 'gerente', 'funcionario'), (req, res) 
 })
 
 // POST /:id/run-now — forca criar uma tarefa do template agora (sem esperar cron)
+// Body opcional: { include_subtask_ids: [id1, id2, ...] } — filtra quais subs vao ser criadas.
+// Se omitido, cria todas as subs do template.
 router.post('/:id/run-now', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
   try {
-    const result = createTaskFromTemplate(+req.params.id, { userId: req.user.id, force: true })
+    const opts = { userId: req.user.id, force: true }
+    if (Array.isArray(req.body?.include_subtask_ids)) {
+      opts.includeSubtaskIds = req.body.include_subtask_ids
+    }
+    const result = createTaskFromTemplate(+req.params.id, opts)
     res.json({ ok: true, task_id: result.taskId, subtasks_created: result.subtasksCreated })
   } catch (err) {
     res.status(500).json({ error: err.message })

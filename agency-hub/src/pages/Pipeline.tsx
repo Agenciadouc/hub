@@ -6,6 +6,8 @@ import { fetchPipelineTasks, fetchClients, fetchDepartments, fetchUsers, fetchCa
 import { Clock, Building2, User, ExternalLink, ChevronDown, ChevronRight, ArrowRight, Search, AlertTriangle, Plus, Layers, X, Repeat } from 'lucide-react'
 import { useToast } from '../components/Toast'
 import TaskTemplateModal from '../components/TaskTemplateModal'
+import AssigneesMultiSelect from '../components/AssigneesMultiSelect'
+import ApplyTemplatePicker from '../components/ApplyTemplatePicker'
 
 function timeAgo(d: string) {
   const [datePart, timePartRaw] = d.split(/[ T]/)
@@ -53,6 +55,9 @@ export default function Pipeline() {
   const [filterDept, setFilterDept] = useState('')
   const [draggedTask, setDraggedTask] = useState<number | null>(null)
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set())
+  // Desktop: quais colunas mostram TODAS as tarefas (default: primeiras 10)
+  const [showAllInStage, setShowAllInStage] = useState<Set<string>>(new Set())
+  const STAGE_TASK_LIMIT = 10
   const [moveTaskId, setMoveTaskId] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [showTerminal, setShowTerminal] = useState(() => localStorage.getItem('pipeline_show_terminal') === '1')
@@ -63,6 +68,7 @@ export default function Pipeline() {
   const [showNewEditorial, setShowNewEditorial] = useState(false)
   const [showNewMae, setShowNewMae] = useState(false)
   const [showNewRecurring, setShowNewRecurring] = useState(false)
+  const [showApplyTemplate, setShowApplyTemplate] = useState(false)
   const [newEditorial, setNewEditorial] = useState({ client_id: '', month_label: '', num_posts: '8', num_videos: '4', due_date: '', category_id: '' })
   const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
   const [newMae, setNewMae] = useState({ title: '', client_id: '', description: '', due_date: today, category_id: '', department_id: '', priority: 'normal', assigned_to: [] as string[], drive_link: '', drive_link_raw: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '', sequential_subtasks: false })
@@ -328,9 +334,9 @@ export default function Pipeline() {
                             🔄 ALTERACAO SOLICITADA
                           </div>
                         )}
-                        {!groupByClient && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#A8A3B8', marginBottom: 4 }}>
-                            <Building2 size={10} /> {task.client_name}
+                        {!groupByClient && task.client_name && (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#F0EDF5', fontWeight: 700, marginTop: 4, marginBottom: 6, padding: '3px 8px', background: 'rgba(255,179,0,0.10)', borderRadius: 6, border: '1px solid rgba(255,179,0,0.20)', letterSpacing: '-0.01em' }}>
+                            <Building2 size={11} style={{ color: '#FFB300' }} /> {task.client_name}
                           </div>
                         )}
                         {task.department_name && <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#6B6580' }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: task.department_color }} />{task.department_name}</div>}
@@ -352,26 +358,43 @@ export default function Pipeline() {
                     )
                   }
 
-                  if (!groupByClient) return stageTasks.map(renderCard)
+                  const isExpanded = showAllInStage.has(stage.slug)
+                  const visibleTasks = isExpanded ? stageTasks : stageTasks.slice(0, STAGE_TASK_LIMIT)
+                  const hiddenCount = stageTasks.length - visibleTasks.length
+                  const toggleExpand = () => setShowAllInStage(prev => { const n = new Set(prev); n.has(stage.slug) ? n.delete(stage.slug) : n.add(stage.slug); return n })
+                  const ShowMoreBtn = hiddenCount > 0 ? (
+                    <button onClick={toggleExpand} style={{ display: 'block', width: '100%', marginTop: 8, padding: '8px 10px', fontSize: 11, fontWeight: 600, background: 'rgba(255,179,0,0.08)', border: '1px dashed rgba(255,179,0,0.3)', borderRadius: 6, color: '#FFB300', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      + Ver mais {hiddenCount} tarefa{hiddenCount > 1 ? 's' : ''}
+                    </button>
+                  ) : isExpanded && stageTasks.length > STAGE_TASK_LIMIT ? (
+                    <button onClick={toggleExpand} style={{ display: 'block', width: '100%', marginTop: 8, padding: '6px 10px', fontSize: 10, fontWeight: 600, background: 'transparent', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: 6, color: '#6B6580', cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Mostrar so as {STAGE_TASK_LIMIT} primeiras
+                    </button>
+                  ) : null
+
+                  if (!groupByClient) return <>{visibleTasks.map(renderCard)}{ShowMoreBtn}</>
 
                   // Group by client
                   const groups: Record<string, Task[]> = {}
-                  for (const t of stageTasks) {
+                  for (const t of visibleTasks) {
                     const key = t.client_name || 'Sem cliente'
                     if (!groups[key]) groups[key] = []
                     groups[key].push(t)
                   }
                   const sortedKeys = Object.keys(groups).sort()
-                  return sortedKeys.map(clientName => (
-                    <div key={clientName} style={{ marginBottom: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', marginBottom: 6, fontSize: 10, fontWeight: 700, color: '#FFB300', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid rgba(255,179,0,0.2)' }}>
-                        <Building2 size={10} /> {clientName} <span style={{ color: '#6B6580' }}>({groups[clientName].length})</span>
+                  return <>
+                    {sortedKeys.map(clientName => (
+                      <div key={clientName} style={{ marginBottom: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', marginBottom: 6, fontSize: 10, fontWeight: 700, color: '#FFB300', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid rgba(255,179,0,0.2)' }}>
+                          <Building2 size={10} /> {clientName} <span style={{ color: '#6B6580' }}>({groups[clientName].length})</span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {groups[clientName].map(renderCard)}
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {groups[clientName].map(renderCard)}
-                      </div>
-                    </div>
-                  ))
+                    ))}
+                    {ShowMoreBtn}
+                  </>
                 })()}
               </div>
             </div>
@@ -391,7 +414,9 @@ export default function Pipeline() {
           </div>
           <div className="form-row">
             <div className="form-group"><label>Departamento</label><select className="select" value={newTask.department_id} onChange={e => setNewTask(p => ({ ...p, department_id: e.target.value }))}><option value="">Nenhum</option>{departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
-            <div className="form-group"><label>Responsaveis</label><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{allUsers.filter((u: any) => u.role !== 'cliente').map((u: any) => { const sel = newTask.assigned_to.includes(String(u.id)); return <button type="button" key={u.id} onClick={() => setNewTask(p => ({ ...p, assigned_to: sel ? p.assigned_to.filter(x => x !== String(u.id)) : [...p.assigned_to, String(u.id)] }))} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${sel ? '#34C759' : 'rgba(255,255,255,0.08)'}`, background: sel ? 'rgba(52,199,89,0.12)' : 'transparent', color: sel ? '#34C759' : '#9B96B0', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>{sel ? '\u2713 ' : ''}{u.name}</button> })}</div></div>
+            <div className="form-group"><label>Responsaveis</label>
+              <AssigneesMultiSelect users={allUsers} selected={newTask.assigned_to} onChange={arr => setNewTask(p => ({ ...p, assigned_to: arr }))} />
+            </div>
           </div>
           <div className="form-row">
             <div className="form-group"><label>Prazo</label><input className="input" type="date" value={newTask.due_date} onChange={e => setNewTask(p => ({ ...p, due_date: e.target.value }))} /></div>
@@ -504,7 +529,12 @@ export default function Pipeline() {
       {/* New Mae generica modal */}
       {showNewMae && (
         <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (() => setShowNewMae(false))() }}><div className="modal" style={{ maxWidth: 600 }} onClick={e => e.stopPropagation()}>
-          <h2><Layers size={18} style={{ marginRight: 8, verticalAlign: 'middle', color: '#FFB300' }} />Nova Tarefa Mae</h2>
+          <h2 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <span><Layers size={18} style={{ marginRight: 8, verticalAlign: 'middle', color: '#FFB300' }} />Nova Tarefa Mae</span>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowApplyTemplate(true)} style={{ fontSize: 11, color: '#7ee787', borderColor: 'rgba(126,231,135,0.35)' }}>
+              <Repeat size={11} /> Usar modelo
+            </button>
+          </h2>
           <p style={{ fontSize: 12, color: '#9B96B0', marginTop: -6, marginBottom: 16 }}>Cria uma tarefa-mae vazia. Voce adiciona as subtarefas manualmente depois. Quando todas concluirem, a mae auto-conclui.</p>
           <div className="form-group"><label>Titulo *</label><input className="input" value={newMae.title} onChange={e => setNewMae(p => ({ ...p, title: e.target.value }))} placeholder="Ex: Campanha Black Friday 2026" /></div>
           <div className="form-group"><label>Descricao</label><textarea className="input" rows={3} value={newMae.description} onChange={e => setNewMae(p => ({ ...p, description: e.target.value }))} /></div>
@@ -525,12 +555,7 @@ export default function Pipeline() {
             <div className="form-group"><label>Departamento</label><select className="select" value={newMae.department_id} onChange={e => setNewMae(p => ({ ...p, department_id: e.target.value }))}><option value="">Nenhum</option>{departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
             <div className="form-group">
               <label>Responsaveis</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {allUsers.filter(u => u.role !== 'cliente').map(u => {
-                  const sel = newMae.assigned_to.includes(String(u.id))
-                  return <button type="button" key={u.id} onClick={() => setNewMae(p => ({ ...p, assigned_to: sel ? p.assigned_to.filter(x => x !== String(u.id)) : [...p.assigned_to, String(u.id)] }))} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${sel ? '#34C759' : 'rgba(255,255,255,0.08)'}`, background: sel ? 'rgba(52,199,89,0.12)' : 'transparent', color: sel ? '#34C759' : '#9B96B0', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>{sel ? '✓ ' : ''}{u.name}</button>
-                })}
-              </div>
+              <AssigneesMultiSelect users={allUsers} selected={newMae.assigned_to} onChange={arr => setNewMae(p => ({ ...p, assigned_to: arr }))} />
             </div>
           </div>
           <div className="form-row">
@@ -579,6 +604,13 @@ export default function Pipeline() {
       )}
 
       <TaskTemplateModal open={showNewRecurring} onClose={() => setShowNewRecurring(false)} onSaved={() => {}} />
+
+      <ApplyTemplatePicker
+        open={showApplyTemplate}
+        clientId={newMae.client_id ? +newMae.client_id : null}
+        onClose={() => setShowApplyTemplate(false)}
+        onApplied={(tid) => { setShowNewMae(false); navigate(`/tasks/${tid}`) }}
+      />
     </div>
   )
 }

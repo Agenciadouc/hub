@@ -114,7 +114,11 @@ export function createTaskFromTemplate(templateId, opts = {}) {
   if (!tpl.is_active && !opts.force) throw new Error(`Template ${templateId} inativo`)
 
   const assignees = db.prepare('SELECT user_id FROM task_template_assignees WHERE template_id = ?').all(templateId).map(r => r.user_id)
-  const subTemplates = db.prepare('SELECT * FROM task_template_subtasks WHERE template_id = ? ORDER BY subtask_position').all(templateId)
+  const allSubTemplates = db.prepare('SELECT * FROM task_template_subtasks WHERE template_id = ? ORDER BY subtask_position').all(templateId)
+  // Se opts.includeSubtaskIds vier setado (array), filtra subs criadas. Undefined/null = cria todas.
+  const subTemplates = Array.isArray(opts.includeSubtaskIds)
+    ? allSubTemplates.filter(s => opts.includeSubtaskIds.map(Number).includes(s.id))
+    : allSubTemplates
 
   const createdBy = opts.userId || tpl.created_by || null
   // Due date da tarefa mae:
@@ -194,9 +198,14 @@ export function createTaskFromTemplate(templateId, opts = {}) {
       })
     }
 
-    // 5. Atualiza template (proxima execucao)
-    const nextRunAt = computeNextRunAt(tpl.recurrence_type, tpl.recurrence_day, tpl.recurrence_hour)
-    updateTpl.run(nextRunAt, templateId)
+    // 5. Atualiza template (proxima execucao) — so faz sentido pra recorrentes
+    if (tpl.is_recurring !== 0) {
+      const nextRunAt = computeNextRunAt(tpl.recurrence_type, tpl.recurrence_day, tpl.recurrence_hour)
+      updateTpl.run(nextRunAt, templateId)
+    } else {
+      // Biblioteca: so atualiza last_run_at, mantem next_run_at NULL
+      db.prepare("UPDATE task_templates SET last_run_at = datetime('now', '-3 hours'), updated_at = datetime('now', '-3 hours') WHERE id = ?").run(templateId)
+    }
 
     return { taskId, subtasksCreated }
   })

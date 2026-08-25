@@ -9,6 +9,8 @@ import {
 import { Plus, Clock, Building2, User, ExternalLink, Download, AlertTriangle, CheckSquare, Square, Users, ArrowRight, ArrowUpDown, Filter, X, Repeat } from 'lucide-react'
 import { useToast } from '../components/Toast'
 import TaskTemplateModal from '../components/TaskTemplateModal'
+import AssigneesMultiSelect from '../components/AssigneesMultiSelect'
+import ApplyTemplatePicker from '../components/ApplyTemplatePicker'
 
 function timeAgo(d: string) {
   // DB salva datetime ja em horario de Brasilia (UTC-3) sem marcador de TZ.
@@ -23,6 +25,14 @@ function timeAgo(d: string) {
   const hr = Math.floor(m / 60)
   if (hr < 24) return `${hr}h`
   return `${Math.floor(hr / 24)}d`
+}
+// Formata YYYY-MM-DD (ou ISO) pra DD/MM
+function formatDDMM(iso: string | null | undefined): string {
+  if (!iso) return '-'
+  const s = iso.slice(0, 10)
+  const [_, mm, dd] = s.split('-')
+  if (!mm || !dd) return '-'
+  return `${dd}/${mm}`
 }
 function todayStr() { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}` }
 function isOverdue(d: string | null) { return d ? d.slice(0, 10) < todayStr() : false }
@@ -46,30 +56,37 @@ export default function Tasks() {
   const isDono = user?.role === 'dono'
   const isFunc = user?.role === 'funcionario' || user?.role === 'gerente'
   const isCliente = user?.role === 'cliente'
+  // Persistencia dos filtros/sort/pagina — mantem estado ao navegar pra TaskDetail e voltar
+  const SS_KEY = 'hub_tasks_state_v1'
+  const savedState = (() => {
+    try { return JSON.parse(sessionStorage.getItem(SS_KEY) || '{}') } catch { return {} }
+  })()
   const [saving, setSaving] = useState(false)
   const [tasks, setTasks] = useState<Task[]>([])
   const [total, setTotal] = useState(0)
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useState<number>(savedState.page || 1)
   const [loading, setLoading] = useState(true)
   const [clients, setClients] = useState<Client[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [allUsers, setAllUsers] = useState<UserT[]>([])
   const [categories, setCategories] = useState<TaskCategory[]>([])
   const [stages, setStages] = useState<PipelineStage[]>([])
-  // Filters
-  const [search, setSearch] = useState('')
-  const [filterClient, setFilterClient] = useState('')
-  const [filterStage, setFilterStage] = useState('')
-  const [filterStages, setFilterStages] = useState<Set<string>>(new Set())
+  // Filters (persistidos)
+  const [search, setSearch] = useState<string>(savedState.search || '')
+  const [filterClient, setFilterClient] = useState<string>(savedState.filterClient || '')
+  const [filterStage, setFilterStage] = useState<string>(savedState.filterStage || '')
+  const [filterStages, setFilterStages] = useState<Set<string>>(new Set(savedState.filterStages || []))
   const [showStageFilter, setShowStageFilter] = useState(false)
-  const [filterDept, setFilterDept] = useState('')
-  const [filterPriority, setFilterPriority] = useState('')
-  const [filterAssigned, setFilterAssigned] = useState(isFunc ? String(user?.id || '') : '')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  // Sort
-  const [sortField, setSortField] = useState('updated_at')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [filterDept, setFilterDept] = useState<string>(savedState.filterDept || '')
+  const [filterPriority, setFilterPriority] = useState<string>(savedState.filterPriority || '')
+  const [filterAssigned, setFilterAssigned] = useState<string>(
+    savedState.filterAssigned !== undefined ? savedState.filterAssigned : (isFunc ? String(user?.id || '') : '')
+  )
+  const [dateFrom, setDateFrom] = useState<string>(savedState.dateFrom || '')
+  const [dateTo, setDateTo] = useState<string>(savedState.dateTo || '')
+  // Sort (persistido)
+  const [sortField, setSortField] = useState<string>(savedState.sortField || 'updated_at')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(savedState.sortDir || 'desc')
   // Modal
   const [showNew, setShowNew] = useState(false)
   const [showNewMae, setShowNewMae] = useState(false)
@@ -85,6 +102,7 @@ export default function Tasks() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [showBulkStage, setShowBulkStage] = useState(false)
   const [showBulkAssign, setShowBulkAssign] = useState(false)
+  const [showApplyTemplate, setShowApplyTemplate] = useState(false)
 
   useEffect(() => {
     if (isDono || isFunc) { fetchClients().then(setClients); fetchDepartments().then(setDepartments); fetchUsers().then(setAllUsers) }
@@ -115,6 +133,16 @@ export default function Tasks() {
   }
 
   useEffect(loadTasks, [search, filterClient, filterStage, filterStages.size, filterDept, filterPriority, filterAssigned, dateFrom, dateTo, page, sortField, sortDir])
+  // Salva estado no sessionStorage sempre que qualquer filtro/sort/pagina mudar
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(SS_KEY, JSON.stringify({
+        search, filterClient, filterStage, filterStages: [...filterStages],
+        filterDept, filterPriority, filterAssigned,
+        dateFrom, dateTo, page, sortField, sortDir,
+      }))
+    } catch {}
+  }, [search, filterClient, filterStage, filterStages, filterDept, filterPriority, filterAssigned, dateFrom, dateTo, page, sortField, sortDir])
 
   // Client-side multi-stage filter
   const filteredTasks = filterStages.size > 1 ? tasks.filter(t => filterStages.has(t.stage)) : tasks
@@ -305,7 +333,7 @@ export default function Tasks() {
                       </td>
                     ) : (
                       <td className="right" onClick={() => navigate(`/tasks/${t.id}`)} style={{ color: overdue ? '#FF6B6B' : soon ? '#FBBC04' : '#6B6580', fontWeight: overdue ? 700 : 400 }}>
-                        {t.due_date ? t.due_date.slice(0, 10) : '-'} {overdue && '⚠️'} {soon && '⏰'}
+                        {formatDDMM(t.due_date)} {overdue && '⚠️'} {soon && '⏰'}
                       </td>
                     )}
                     <td className="right" onClick={() => navigate(`/tasks/${t.id}`)}><Clock size={10} /> {timeAgo(t.created_at)}</td>
@@ -334,7 +362,9 @@ export default function Tasks() {
           </div>
           <div className="form-row">
             <div className="form-group"><label>Departamento</label><select className="select" value={newTask.department_id} onChange={e => setNewTask(p => ({ ...p, department_id: e.target.value }))}><option value="">Nenhum</option>{departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
-            <div className="form-group"><label>Responsaveis</label><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{allUsers.filter(u => u.role !== 'cliente').map(u => { const sel = newTask.assigned_to.includes(String(u.id)); return <button type="button" key={u.id} onClick={() => setNewTask(p => ({ ...p, assigned_to: sel ? p.assigned_to.filter(x => x !== String(u.id)) : [...p.assigned_to, String(u.id)] }))} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${sel ? '#34C759' : 'rgba(255,255,255,0.08)'}`, background: sel ? 'rgba(52,199,89,0.12)' : 'transparent', color: sel ? '#34C759' : '#9B96B0', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>{sel ? '\u2713 ' : ''}{u.name}</button> })}</div></div>
+            <div className="form-group"><label>Responsaveis</label>
+              <AssigneesMultiSelect users={allUsers} selected={newTask.assigned_to} onChange={arr => setNewTask(p => ({ ...p, assigned_to: arr }))} />
+            </div>
           </div>
           <div className="form-row">
             <div className="form-group"><label>Prazo</label><input className="input" type="date" value={newTask.due_date} onChange={e => setNewTask(p => ({ ...p, due_date: e.target.value }))} /></div>
@@ -348,7 +378,12 @@ export default function Tasks() {
       {/* New Mae generica modal */}
       {showNewMae && (
         <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) (() => setShowNewMae(false))() }}><div className="modal" style={{ maxWidth: 600 }} onClick={e => e.stopPropagation()}>
-          <h2>Nova Tarefa Mae</h2>
+          <h2 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <span>Nova Tarefa Mae</span>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowApplyTemplate(true)} style={{ fontSize: 11, color: '#7ee787', borderColor: 'rgba(126,231,135,0.35)' }}>
+              <Repeat size={11} /> Usar modelo
+            </button>
+          </h2>
           <p style={{ fontSize: 12, color: '#9B96B0', marginTop: -6, marginBottom: 16 }}>Cria uma tarefa-mae vazia. Voce adiciona as subtarefas manualmente depois. Quando todas concluirem, a mae auto-conclui.</p>
           <div className="form-group"><label>Titulo *</label><input className="input" value={newMae.title} onChange={e => setNewMae(p => ({ ...p, title: e.target.value }))} placeholder="Ex: Campanha Black Friday 2026" /></div>
           <div className="form-group"><label>Descricao</label><textarea className="input" rows={3} value={newMae.description} onChange={e => setNewMae(p => ({ ...p, description: e.target.value }))} /></div>
@@ -360,12 +395,7 @@ export default function Tasks() {
             <div className="form-group"><label>Departamento</label><select className="select" value={newMae.department_id} onChange={e => setNewMae(p => ({ ...p, department_id: e.target.value }))}><option value="">Nenhum</option>{departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
             <div className="form-group">
               <label>Responsaveis</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {allUsers.filter(u => u.role !== 'cliente').map(u => {
-                  const sel = newMae.assigned_to.includes(String(u.id))
-                  return <button type="button" key={u.id} onClick={() => setNewMae(p => ({ ...p, assigned_to: sel ? p.assigned_to.filter(x => x !== String(u.id)) : [...p.assigned_to, String(u.id)] }))} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${sel ? '#34C759' : 'rgba(255,255,255,0.08)'}`, background: sel ? 'rgba(52,199,89,0.12)' : 'transparent', color: sel ? '#34C759' : '#9B96B0', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>{sel ? '✓ ' : ''}{u.name}</button>
-                })}
-              </div>
+              <AssigneesMultiSelect users={allUsers} selected={newMae.assigned_to} onChange={arr => setNewMae(p => ({ ...p, assigned_to: arr }))} />
             </div>
           </div>
           <div className="form-row">
@@ -457,6 +487,13 @@ export default function Tasks() {
       )}
 
       <TaskTemplateModal open={showNewRecurring} onClose={() => setShowNewRecurring(false)} onSaved={() => {}} />
+
+      <ApplyTemplatePicker
+        open={showApplyTemplate}
+        clientId={newMae.client_id ? +newMae.client_id : null}
+        onClose={() => setShowApplyTemplate(false)}
+        onApplied={(tid) => { setShowNewMae(false); loadTasks(); navigate(`/tasks/${tid}`) }}
+      />
     </div>
   )
 }

@@ -10,6 +10,7 @@ import {
 } from '../lib/api'
 import { Plus, X } from 'lucide-react'
 import { useToast } from './Toast'
+import AssigneesMultiSelect from './AssigneesMultiSelect'
 
 const WEEKDAYS = [
   { v: 1, label: 'Segunda-feira' }, { v: 2, label: 'Terca-feira' }, { v: 3, label: 'Quarta-feira' },
@@ -42,6 +43,7 @@ interface FormState {
   assigned_to: string[]
   subtasks: TaskTemplateSubtask[]
   is_active: boolean
+  is_recurring: boolean   // false = biblioteca de modelo (nao roda automatico)
 }
 
 const BLANK_FORM: FormState = {
@@ -53,7 +55,7 @@ const BLANK_FORM: FormState = {
   recurrence_type: 'monthly', recurrence_day: 1, recurrence_hour: 6,
   mode: 'on_complete',
   sequential_subtasks: false,
-  assigned_to: [], subtasks: [], is_active: true,
+  assigned_to: [], subtasks: [], is_active: true, is_recurring: true,
 }
 
 interface Props {
@@ -111,6 +113,7 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
           assigned_to: (t.assigned_to || []).map(String),
           subtasks: (t.subtasks || []).map(s => ({ ...s, assigned_to: s.assigned_to || [] })),
           is_active: !!t.is_active,
+          is_recurring: (t as any).is_recurring == null ? true : !!(t as any).is_recurring,
         })
       }).catch((e: any) => toast(e?.message || 'Erro ao carregar', 'error'))
     } else {
@@ -142,6 +145,7 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
         publish_date: form.publish_date || null,
         publish_objective: form.publish_objective || null,
         due_date_offset_days: +form.due_date_offset_days,
+        is_recurring: form.is_recurring ? 1 : 0,
         recurrence_type: form.recurrence_type,
         recurrence_day: +form.recurrence_day,
         recurrence_hour: +form.recurrence_hour,
@@ -191,11 +195,28 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
   return (
     <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal" style={{ maxWidth: 720, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-        <h2>{form.id ? 'Editar Recorrencia' : 'Nova Recorrencia'}</h2>
+        <h2>{form.id ? 'Editar Template' : 'Novo Template'}</h2>
+
+        {/* Toggle: recorrente (roda automatico) vs biblioteca (aplicacao manual) */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, padding: 4, background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+          <button type="button" onClick={() => setForm(p => ({ ...p, is_recurring: true }))}
+            style={{ flex: 1, padding: '10px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: form.is_recurring ? 'rgba(255,179,0,0.14)' : 'transparent', color: form.is_recurring ? '#FFB300' : '#9B96B0', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
+            Recorrente (roda automatico)
+          </button>
+          <button type="button" onClick={() => setForm(p => ({ ...p, is_recurring: false }))}
+            style={{ flex: 1, padding: '10px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', background: !form.is_recurring ? 'rgba(126,231,135,0.14)' : 'transparent', color: !form.is_recurring ? '#7ee787' : '#9B96B0', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
+            Modelo (aplicar manual)
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: '#9B96B0', marginBottom: 14, lineHeight: 1.5 }}>
+          {form.is_recurring
+            ? 'Roda automatico na frequencia configurada abaixo. Cada execucao cria uma tarefa nova.'
+            : 'Fica salvo como modelo. Nunca cria tarefa sozinho. Voce aplica manualmente quando precisar (botao "Usar modelo" ao criar tarefa mae).'}
+        </div>
 
         <div style={{ padding: '14px 16px', background: 'rgba(255,179,0,0.04)', border: '1px solid rgba(255,179,0,0.15)', borderRadius: 10, marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Agendamento</div>
-          <div className="form-group"><label>Nome do template (interno) *</label><input className="input" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Ex: Linha Editorial ASK Mensal" /></div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>{form.is_recurring ? 'Agendamento' : 'Modelo'}</div>
+          <div className="form-group"><label>Nome do template (interno) *</label><input className="input" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Ex: Edicao de Video / Linha Editorial / Subir Anuncio" /></div>
           <div className="form-row">
             <div className="form-group">
               <label>Tipo de tarefa</label>
@@ -205,58 +226,62 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
               </select>
             </div>
             <div className="form-group">
-              <label>Frequencia</label>
-              <select className="select" value={form.recurrence_type} onChange={e => setForm(p => ({ ...p, recurrence_type: e.target.value as any }))}>
-                <option value="monthly">Mensal</option>
-                <option value="weekly">Semanal</option>
-              </select>
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label>{form.recurrence_type === 'weekly' ? 'Dia da semana' : 'Dia do mes'}</label>
-              {form.recurrence_type === 'weekly' ? (
-                <select className="select" value={form.recurrence_day} onChange={e => setForm(p => ({ ...p, recurrence_day: +e.target.value }))}>
-                  {WEEKDAYS.map(w => <option key={w.v} value={w.v}>{w.label}</option>)}
-                </select>
-              ) : (
-                <select className="select" value={form.recurrence_day} onChange={e => setForm(p => ({ ...p, recurrence_day: +e.target.value }))}>
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>Dia {d}</option>)}
-                </select>
-              )}
-            </div>
-            <div className="form-group">
-              <label>Hora</label>
-              <select className="select" value={form.recurrence_hour} onChange={e => setForm(p => ({ ...p, recurrence_hour: +e.target.value }))}>
-                {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
-              </select>
-            </div>
-            <div className="form-group">
               <label>Prazo da tarefa</label>
               <input className="input" type="number" min={0} value={form.due_date_offset_days} onChange={e => setForm(p => ({ ...p, due_date_offset_days: +e.target.value || 0 }))} />
               <small style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>+N dias apos criacao</small>
             </div>
           </div>
-          {form.recurrence_type === 'monthly' && form.recurrence_day === 31 && (
-            <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 6 }}>Em meses com menos de 31 dias, vai usar o ultimo dia disponivel (28/29/30).</div>
+          {form.is_recurring && (
+            <>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Frequencia</label>
+                  <select className="select" value={form.recurrence_type} onChange={e => setForm(p => ({ ...p, recurrence_type: e.target.value as any }))}>
+                    <option value="monthly">Mensal</option>
+                    <option value="weekly">Semanal</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>{form.recurrence_type === 'weekly' ? 'Dia da semana' : 'Dia do mes'}</label>
+                  {form.recurrence_type === 'weekly' ? (
+                    <select className="select" value={form.recurrence_day} onChange={e => setForm(p => ({ ...p, recurrence_day: +e.target.value }))}>
+                      {WEEKDAYS.map(w => <option key={w.v} value={w.v}>{w.label}</option>)}
+                    </select>
+                  ) : (
+                    <select className="select" value={form.recurrence_day} onChange={e => setForm(p => ({ ...p, recurrence_day: +e.target.value }))}>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>Dia {d}</option>)}
+                    </select>
+                  )}
+                </div>
+                <div className="form-group">
+                  <label>Hora</label>
+                  <select className="select" value={form.recurrence_hour} onChange={e => setForm(p => ({ ...p, recurrence_hour: +e.target.value }))}>
+                    {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+                  </select>
+                </div>
+              </div>
+              {form.recurrence_type === 'monthly' && form.recurrence_day === 31 && (
+                <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 6 }}>Em meses com menos de 31 dias, vai usar o ultimo dia disponivel (28/29/30).</div>
+              )}
+              <div className="form-group" style={{ marginTop: 12, padding: 10, background: 'rgba(155,89,182,0.05)', border: '1px solid rgba(155,89,182,0.2)', borderRadius: 6 }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Comportamento da recorrencia</label>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
+                  <input type="radio" name="tpl-mode" value="on_complete" checked={form.mode === 'on_complete'} onChange={() => setForm(p => ({ ...p, mode: 'on_complete' }))} style={{ marginTop: 3 }} />
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>So gera a proxima quando eu concluir a atual</div>
+                    <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 2 }}>Nao acumula tarefas se voce nao concluir no prazo. Ao criar, ja entra 1 tarefa na sua lista.</small>
+                  </div>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                  <input type="radio" name="tpl-mode" value="auto" checked={form.mode === 'auto'} onChange={() => setForm(p => ({ ...p, mode: 'auto' }))} style={{ marginTop: 3 }} />
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>Sempre criar na data marcada</div>
+                    <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 2 }}>Cron cria uma nova tarefa toda vez que bate a data, mesmo se ha tarefas anteriores em aberto. Pode acumular.</small>
+                  </div>
+                </label>
+              </div>
+            </>
           )}
-          <div className="form-group" style={{ marginTop: 12, padding: 10, background: 'rgba(155,89,182,0.05)', border: '1px solid rgba(155,89,182,0.2)', borderRadius: 6 }}>
-            <label style={{ display: 'block', fontWeight: 600, marginBottom: 6 }}>Comportamento da recorrencia</label>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
-              <input type="radio" name="tpl-mode" value="on_complete" checked={form.mode === 'on_complete'} onChange={() => setForm(p => ({ ...p, mode: 'on_complete' }))} style={{ marginTop: 3 }} />
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>So gera a proxima quando eu concluir a atual</div>
-                <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 2 }}>Nao acumula tarefas se voce nao concluir no prazo. Ao criar, ja entra 1 tarefa na sua lista.</small>
-              </div>
-            </label>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
-              <input type="radio" name="tpl-mode" value="auto" checked={form.mode === 'auto'} onChange={() => setForm(p => ({ ...p, mode: 'auto' }))} style={{ marginTop: 3 }} />
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>Sempre criar na data marcada</div>
-                <small style={{ color: 'var(--text-muted)', fontSize: 11, display: 'block', marginTop: 2 }}>Cron cria uma nova tarefa toda vez que bate a data, mesmo se ha tarefas anteriores em aberto. Pode acumular.</small>
-              </div>
-            </label>
-          </div>
         </div>
 
         <div className="form-row">
@@ -271,12 +296,7 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
         </div>
         <div className="form-group">
           <label>Responsaveis</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {allUsers.filter(u => u.role !== 'cliente').map(u => {
-              const sel = form.assigned_to.includes(String(u.id))
-              return <button type="button" key={u.id} onClick={() => setForm(p => ({ ...p, assigned_to: sel ? p.assigned_to.filter(x => x !== String(u.id)) : [...p.assigned_to, String(u.id)] }))} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${sel ? 'var(--positive)' : 'var(--border-subtle)'}`, background: sel ? 'var(--positive-bg)' : 'transparent', color: sel ? 'var(--positive)' : 'var(--text-muted)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>{sel ? '✓ ' : ''}{u.name}</button>
-            })}
-          </div>
+          <AssigneesMultiSelect users={allUsers} selected={form.assigned_to} onChange={arr => setForm(p => ({ ...p, assigned_to: arr }))} />
         </div>
         <div className="form-row">
           <div className="form-group"><label>Link Drive Bruto</label><input className="input" value={form.drive_link_raw} onChange={e => setForm(p => ({ ...p, drive_link_raw: e.target.value }))} /></div>
@@ -317,12 +337,11 @@ export default function TaskTemplateModal({ open, editId, onClose, onSaved }: Pr
                 </div>
                 <div className="form-group">
                   <label>Responsaveis</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {allUsers.filter(u => u.role !== 'cliente').map(u => {
-                      const sel = (sub.assigned_to || []).map(String).includes(String(u.id))
-                      return <button type="button" key={u.id} onClick={() => updateSubtask(idx, { assigned_to: sel ? (sub.assigned_to || []).filter(x => +x !== u.id) : [...(sub.assigned_to || []), u.id] })} style={{ padding: '4px 8px', borderRadius: 4, border: `1px solid ${sel ? 'var(--positive)' : 'var(--border-subtle)'}`, background: sel ? 'var(--positive-bg)' : 'transparent', color: sel ? 'var(--positive)' : 'var(--text-muted)', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }}>{u.name}</button>
-                    })}
-                  </div>
+                  <AssigneesMultiSelect
+                    users={allUsers}
+                    selected={(sub.assigned_to || []).map(String)}
+                    onChange={arr => updateSubtask(idx, { assigned_to: arr.map(Number) })}
+                  />
                 </div>
                 <div className="form-group"><label>Descricao</label><textarea className="input" rows={2} value={sub.description || ''} onChange={e => updateSubtask(idx, { description: e.target.value })} /></div>
               </div>

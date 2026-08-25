@@ -320,6 +320,19 @@ router.post('/:id/subtasks', requireRole('dono', 'gerente', 'funcionario'), (req
   res.json({ subtask })
 })
 
+// Convert a normal task INTO a mae — permite adicionar subtarefas depois
+// Regras: task tem que ser 'normal' (ou sem type) E nao pode ser ela mesma uma subtarefa
+router.post('/:id/convert-to-mae', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id)
+  if (!task) return res.status(404).json({ error: 'Tarefa nao encontrada' })
+  if (task.parent_task_id) return res.status(400).json({ error: 'Nao da pra tornar uma subtarefa em mae — ela ja pertence a outra mae' })
+  if (task.task_type && task.task_type !== 'normal') return res.status(400).json({ error: 'Tarefa ja e mae ou de tipo especial' })
+  db.prepare("UPDATE tasks SET task_type = 'mae', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(task.id)
+  const updated = db.prepare('SELECT * FROM tasks WHERE id = ?').get(task.id)
+  broadcastSSE(task.client_id, 'task:updated', updated)
+  res.json({ task: updated })
+})
+
 // Create Editorial parent task with fixed subtasks (hardcoded workflow)
 router.post('/editorial', requireRole('dono', 'gerente'), (req, res) => {
   const { client_id, month_label, num_posts, num_videos, due_date, category_id } = req.body

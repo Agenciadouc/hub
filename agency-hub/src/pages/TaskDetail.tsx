@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useSSE } from '../context/SSEContext'
-import { fetchTask, fetchClients, fetchDepartments, fetchUsers, fetchCategories, fetchStages, updateTask, moveTaskStage, addTaskComment, addTaskAttachment, deleteTaskAttachment, approveTask, rejectTask, startTimer, stopTimer, confirmRecording, addSubtask, getApprovalFiles, type Task, type TaskComment, type TaskHistory, type TaskAttachment, type TimeEntry, type Client, type Department, type User as UserT, type TaskCategory, type PipelineStage } from '../lib/api'
+import { fetchTask, fetchClients, fetchDepartments, fetchUsers, fetchCategories, fetchStages, updateTask, moveTaskStage, addTaskComment, addTaskAttachment, deleteTaskAttachment, approveTask, rejectTask, startTimer, stopTimer, confirmRecording, addSubtask, getApprovalFiles, convertTaskToMae, type Task, type TaskComment, type TaskHistory, type TaskAttachment, type TimeEntry, type Client, type Department, type User as UserT, type TaskCategory, type PipelineStage } from '../lib/api'
 import { isDriveUrl, toDriveEmbedUrl } from '../lib/drive'
 import { ArrowLeft, Building2, Clock, User, ExternalLink, CheckCircle, XCircle, Send, MessageCircle, GitBranch, Paperclip, Eye, Edit3, Save, X, Plus, AlertTriangle, Layers, ChevronRight, ChevronDown, Video, Trash2, FileText } from 'lucide-react'
 import { useToast } from '../components/Toast'
+import AssigneesMultiSelect from '../components/AssigneesMultiSelect'
 
 export default function TaskDetail() {
   const { id } = useParams()
@@ -50,6 +51,14 @@ export default function TaskDetail() {
   const [newSubIsCarrossel, setNewSubIsCarrossel] = useState(false)
   const [newSubFiles, setNewSubFiles] = useState<string[]>([''])
   const [savingSub, setSavingSub] = useState(false)
+  // Popup pra coletar aprovacao ao mover pra 'aguardando_cliente'/'aprovacao_interna'
+  const [approvalPopup, setApprovalPopup] = useState<{ targetStage: string } | null>(null)
+  const [approvalPopupData, setApprovalPopupData] = useState({ approval_link: '', approval_files: [''] as string[], is_carrossel: false, approval_text: '', publish_date: '', publish_objective: '' })
+  const [approvalPopupSaving, setApprovalPopupSaving] = useState(false)
+  // Edicao inline de subtarefa (sem sair da tela da mae)
+  const [editingSubId, setEditingSubId] = useState<number | null>(null)
+  const [editingSubData, setEditingSubData] = useState<any>({})
+  const [savingSubInline, setSavingSubInline] = useState(false)
 
   const { toast } = useToast()
   const isDono = user?.role === 'dono' || user?.role === 'gerente'
@@ -191,8 +200,19 @@ export default function TaskDetail() {
 
   const handleStageMove = async (stage: string) => {
     if (!task) return
+    // Se vai pra aprovacao e nao tem link → abre popup em vez de bloquear
     if ((stage === 'aprovacao_interna' || stage === 'aguardando_cliente') && !task.approval_link) {
-      toast('Preencha o "Conteudo para Aprovacao" antes de enviar pra aprovacao.', 'error')
+      // Pre-popula com o que ja existir na task
+      const files = (task as any).approval_files_arr || []
+      setApprovalPopupData({
+        approval_link: task.approval_link || (files[0] || ''),
+        approval_files: files.length > 0 ? files : [''],
+        is_carrossel: files.length > 1,
+        approval_text: (task as any).approval_text || '',
+        publish_date: (task as any).publish_date || '',
+        publish_objective: (task as any).publish_objective || '',
+      })
+      setApprovalPopup({ targetStage: stage })
       return
     }
     try {
@@ -202,6 +222,78 @@ export default function TaskDetail() {
       toast('Etapa atualizada!')
     }
     catch (err: any) { toast(err.message || 'Erro ao mover tarefa', 'error') }
+  }
+
+  const handleApprovalPopupConfirm = async () => {
+    if (!task || !approvalPopup) return
+    // Valida: precisa de pelo menos 1 link
+    const carrosselFiles = approvalPopupData.approval_files.filter(s => s && s.trim())
+    if (approvalPopupData.is_carrossel && carrosselFiles.length === 0) {
+      toast('Adicione pelo menos 1 slide no carrossel', 'error')
+      return
+    }
+    if (!approvalPopupData.is_carrossel && !approvalPopupData.approval_link.trim()) {
+      toast('Preencha o link do arquivo finalizado', 'error')
+      return
+    }
+    setApprovalPopupSaving(true)
+    try {
+      const payload: any = {
+        approval_text: approvalPopupData.approval_text || null,
+        publish_date: approvalPopupData.publish_date || null,
+        publish_objective: approvalPopupData.publish_objective || null,
+      }
+      if (approvalPopupData.is_carrossel) payload.approval_files = carrosselFiles
+      else payload.approval_files = approvalPopupData.approval_link ? [approvalPopupData.approval_link.trim()] : []
+      await updateTask(task.id, payload)
+      await moveTaskStage(task.id, approvalPopup.targetStage)
+      setApprovalPopup(null)
+      loadTask()
+      toast('Enviado pra aprovacao!')
+    } catch (err: any) {
+      toast(err.message || 'Erro ao enviar', 'error')
+    }
+    setApprovalPopupSaving(false)
+  }
+
+  const handleConvertToMae = async () => {
+    if (!task) return
+    if (!confirm(`Tornar "${task.title}" em tarefa mae? Depois voce pode adicionar subtarefas.`)) return
+    try {
+      await convertTaskToMae(task.id)
+      loadTask()
+      toast('Tarefa convertida em mae — agora voce pode adicionar subtarefas')
+    } catch (err: any) { toast(err.message || 'Erro ao converter', 'error') }
+  }
+
+  const startEditSub = (sub: any) => {
+    setEditingSubId(sub.id)
+    setEditingSubData({
+      title: (sub.title || '').replace(' - ' + (task?.title || ''), '').replace((task?.title || '') + ' - ', ''),
+      due_date: sub.due_date?.slice(0, 10) || '',
+      priority: sub.priority || 'normal',
+      department_id: sub.department_id || '',
+      assigned_to: (sub.assignees || []).map((a: any) => String(a.user_id)),
+    })
+  }
+  const cancelEditSub = () => { setEditingSubId(null); setEditingSubData({}) }
+  const saveEditSub = async () => {
+    if (!editingSubId) return
+    if (!editingSubData.title?.trim()) { toast('Titulo obrigatorio', 'error'); return }
+    setSavingSubInline(true)
+    try {
+      await updateTask(editingSubId, {
+        title: editingSubData.title,
+        due_date: editingSubData.due_date || null,
+        priority: editingSubData.priority,
+        department_id: editingSubData.department_id || null,
+        assigned_to: (editingSubData.assigned_to || []).map(Number),
+      } as any)
+      cancelEditSub()
+      loadTask()
+      toast('Subtarefa atualizada')
+    } catch (err: any) { toast(err.message || 'Erro ao salvar', 'error') }
+    setSavingSubInline(false)
   }
 
   if (loading) return <div className="loading-container"><div className="spinner" /></div>
@@ -441,7 +533,12 @@ export default function TaskDetail() {
           <div className="card" style={{ marginBottom: 16 }}>
             {/* Edit toggle */}
             {canEdit && !editing && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 6 }}>
+                {(!task.task_type || task.task_type === 'normal') && !(task as any).parent_task_id && (
+                  <button className="btn btn-secondary btn-sm" onClick={handleConvertToMae} title="Converte esta tarefa em mae — permite adicionar subtarefas" style={{ color: '#FFB300', borderColor: 'rgba(255,179,0,0.35)' }}>
+                    <Layers size={12} /> Tornar mae
+                  </button>
+                )}
                 <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}><Edit3 size={12} /> Editar</button>
               </div>
             )}
@@ -451,7 +548,9 @@ export default function TaskDetail() {
                 <div className="form-group"><label>Descricao</label><textarea className="input" rows={3} value={editData.description} onChange={e => setEditData((p: any) => ({ ...p, description: e.target.value }))} /></div>
                 <div className="form-row">
                   <div className="form-group"><label>Departamento</label><select className="select" value={editData.department_id} onChange={e => setEditData((p: any) => ({ ...p, department_id: e.target.value }))}><option value="">Nenhum</option>{departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
-                  <div className="form-group"><label>Responsaveis</label><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{users.filter((u: any) => u.role !== 'cliente' && u.is_active).map((u: any) => { const sel = (editData.assigned_to || []).includes(String(u.id)); return <button type="button" key={u.id} onClick={() => setEditData((p: any) => ({ ...p, assigned_to: sel ? p.assigned_to.filter((x: string) => x !== String(u.id)) : [...(p.assigned_to || []), String(u.id)] }))} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${sel ? '#34C759' : 'rgba(255,255,255,0.08)'}`, background: sel ? 'rgba(52,199,89,0.12)' : 'transparent', color: sel ? '#34C759' : '#9B96B0', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>{sel ? '\u2713 ' : ''}{u.name}</button> })}</div></div>
+                  <div className="form-group"><label>Responsaveis</label>
+                    <AssigneesMultiSelect users={users} selected={editData.assigned_to || []} onChange={arr => setEditData((p: any) => ({ ...p, assigned_to: arr }))} />
+                  </div>
                 </div>
                 <div className="form-row">
                   <div className="form-group"><label>Prazo</label><input className="input" type="date" value={editData.due_date} onChange={e => setEditData((p: any) => ({ ...p, due_date: e.target.value }))} /></div>
@@ -519,57 +618,9 @@ export default function TaskDetail() {
                   )
                 })()}
 
-                {/* Approval content section */}
-                <div style={{ marginTop: 12, padding: '14px 16px', background: 'rgba(245,166,35,0.04)', border: '1px solid rgba(245,166,35,0.12)', borderRadius: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#F5A623', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Conteudo para Aprovacao</div>
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#A8A3B8', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={!!editData.is_carrossel} onChange={e => {
-                        const checked = e.target.checked
-                        setEditData((p: any) => {
-                          if (checked) {
-                            // OFF -> ON: usa approval_link atual como primeiro slide (se existir)
-                            const initial = (p.approval_files && p.approval_files.length > 0) ? p.approval_files : (p.approval_link ? [p.approval_link] : [''])
-                            return { ...p, is_carrossel: true, approval_files: initial }
-                          } else {
-                            // ON -> OFF: pega o primeiro slide como approval_link
-                            const first = (p.approval_files && p.approval_files[0]) || p.approval_link || ''
-                            return { ...p, is_carrossel: false, approval_link: first, approval_files: first ? [first] : [] }
-                          }
-                        })
-                      }} style={{ accentColor: '#FFB300' }} />
-                      Carrossel (varios arquivos)
-                    </label>
-                  </div>
-                  {editData.is_carrossel ? (
-                    <div className="form-group">
-                      <label>Arquivos do carrossel *</label>
-                      {(editData.approval_files || []).map((url: string, idx: number) => (
-                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                          <span style={{ minWidth: 56, fontSize: 11, color: '#6B6580', fontWeight: 700 }}>Slide {idx + 1}</span>
-                          <input className="input" value={url} placeholder="Link do Drive (publico)" style={{ flex: 1 }} onChange={e => {
-                            const v = e.target.value
-                            setEditData((p: any) => ({ ...p, approval_files: p.approval_files.map((x: string, i: number) => i === idx ? v : x) }))
-                          }} />
-                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditData((p: any) => ({ ...p, approval_files: p.approval_files.filter((_: string, i: number) => i !== idx) }))} title="Remover" style={{ padding: '6px 10px' }}>
-                            <X size={12} />
-                          </button>
-                        </div>
-                      ))}
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditData((p: any) => ({ ...p, approval_files: [...(p.approval_files || []), ''] }))} style={{ marginTop: 4 }}>
-                        <Plus size={12} /> Adicionar slide
-                      </button>
-                      <small style={{ fontSize: 11, color: '#6B6580', marginTop: 6, display: 'block' }}>Cada link vira um slide pro cliente ver. Precisam ser publicos no Drive.</small>
-                    </div>
-                  ) : (
-                    <div className="form-group"><label>Link do arquivo finalizado *</label><input className="input" value={editData.approval_link} onChange={e => setEditData((p: any) => ({ ...p, approval_link: e.target.value }))} placeholder="Link do Drive — compartilhamento: qualquer pessoa com o link" /><small style={{ fontSize: 11, color: '#6B6580', marginTop: 4, display: 'block' }}>O cliente vai ver o video/imagem embutido. Precisa estar publico no Drive.</small></div>
-                  )}
-                  <div className="form-group"><label>Texto / Legenda</label><textarea className="input" rows={3} value={editData.approval_text} onChange={e => setEditData((p: any) => ({ ...p, approval_text: e.target.value }))} placeholder="Legenda do post, texto da publicacao, descricao..." /></div>
-                  <div className="form-row">
-                    <div className="form-group"><label>Data da Publicacao</label><input className="input" type="date" value={editData.publish_date} onChange={e => setEditData((p: any) => ({ ...p, publish_date: e.target.value }))} /></div>
-                    <div className="form-group"><label>Objetivo da Publicacao</label><input className="input" value={editData.publish_objective} onChange={e => setEditData((p: any) => ({ ...p, publish_objective: e.target.value }))} placeholder="Ex: Gerar leads, engajamento, branding..." /></div>
-                  </div>
-                  <div style={{ fontSize: 10, color: '#6E6887' }}>Obrigatorio preencher pelo menos 1 link antes de enviar pra aprovacao. Data e objetivo sao opcionais.</div>
+                {/* Conteudo pra aprovacao — form movido pra popup que abre ao mover pra 'Aguardando Cliente' */}
+                <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(245,166,35,0.05)', border: '1px dashed rgba(245,166,35,0.20)', borderRadius: 8, fontSize: 11, color: '#A8A3B8' }}>
+                  <strong style={{ color: '#F5A623' }}>Conteudo pra aprovacao:</strong> voce preenche na hora de mandar pra "Aguardando Cliente" (link, legenda, data e objetivo aparecem em popup na transicao).
                 </div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
                   <button className="btn btn-primary btn-sm" onClick={handleSaveEdit}><Save size={12} /> Salvar</button>
@@ -679,36 +730,70 @@ export default function TaskDetail() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {((task as any).subtasks || []).map((sub: any) => {
                   const isOverdueSub = sub.due_date && sub.due_date.slice(0, 10) < (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}` })() && sub.stage !== 'concluido' && sub.stage !== 'rejeitado'
+                  const isEditing = editingSubId === sub.id
                   return (
-                    <div key={sub.id} onClick={() => navigate(`/tasks/${sub.id}`)}
-                      style={{ padding: '12px 14px', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,0.02)', border: `1px solid ${sub.stage === 'concluido' ? 'rgba(52,199,89,0.2)' : 'rgba(255,255,255,0.06)'}`, borderLeft: `3px solid ${sub.stage_color || '#6B6580'}`, transition: 'background 0.15s' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.04)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                          <span style={{ width: 22, height: 22, borderRadius: '50%', background: sub.stage_color || '#6B6580', color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{sub.subtask_position}</span>
-                          <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-heading)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {sub.title.replace(' - ' + task.title, '').replace(task.title + ' - ', '')}
-                          </span>
+                    <div key={sub.id}
+                      style={{ padding: '12px 14px', borderRadius: 8, background: isEditing ? 'rgba(255,179,0,0.06)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isEditing ? 'rgba(255,179,0,0.35)' : (sub.stage === 'concluido' ? 'rgba(52,199,89,0.2)' : 'rgba(255,255,255,0.06)')}`, borderLeft: `3px solid ${sub.stage_color || '#6B6580'}`, transition: 'background 0.15s' }}>
+                      {isEditing ? (
+                        <div onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                            <span style={{ width: 22, height: 22, borderRadius: '50%', background: sub.stage_color || '#6B6580', color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{sub.subtask_position}</span>
+                            <input className="input" value={editingSubData.title || ''} onChange={e => setEditingSubData((p: any) => ({ ...p, title: e.target.value }))} placeholder="Titulo" style={{ flex: 1, fontSize: 13, fontWeight: 700 }} autoFocus />
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 8 }}>
+                            <input className="input" type="date" value={editingSubData.due_date || ''} onChange={e => setEditingSubData((p: any) => ({ ...p, due_date: e.target.value }))} style={{ fontSize: 12 }} />
+                            <select className="select" value={editingSubData.priority || 'normal'} onChange={e => setEditingSubData((p: any) => ({ ...p, priority: e.target.value }))} style={{ fontSize: 12 }}>
+                              <option value="low">Baixa</option><option value="normal">Normal</option><option value="high">Alta</option><option value="urgent">Urgente</option>
+                            </select>
+                            <select className="select" value={editingSubData.department_id || ''} onChange={e => setEditingSubData((p: any) => ({ ...p, department_id: e.target.value }))} style={{ fontSize: 12 }}>
+                              <option value="">Sem depto</option>
+                              {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                            </select>
+                          </div>
+                          <div style={{ marginBottom: 8 }}>
+                            <AssigneesMultiSelect users={users} selected={editingSubData.assigned_to || []} onChange={arr => setEditingSubData((p: any) => ({ ...p, assigned_to: arr }))} />
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button className="btn btn-secondary btn-sm" onClick={cancelEditSub} disabled={savingSubInline}><X size={11} /> Cancelar</button>
+                            <button className="btn btn-primary btn-sm" onClick={saveEditSub} disabled={savingSubInline}>{savingSubInline ? 'Salvando...' : <><Save size={11} /> Salvar</>}</button>
+                          </div>
                         </div>
-                        <span className="stage-badge" style={{ background: `${sub.stage_color}20`, color: sub.stage_color, flexShrink: 0 }}>{sub.stage_name}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#6B6580', flexWrap: 'wrap' }}>
-                        {sub.department_name && (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: sub.department_color }} />
-                            {sub.department_name}
-                          </span>
-                        )}
-                        {sub.assigned_name && <span><User size={10} /> {sub.assigned_name}</span>}
-                        {sub.due_date && (
-                          <span style={{ color: isOverdueSub ? '#FF6B6B' : '#6B6580', fontWeight: isOverdueSub ? 700 : 400, display: 'flex', alignItems: 'center', gap: 3 }}>
-                            <Clock size={10} /> {sub.due_date.slice(0, 10)}{isOverdueSub ? ' (atrasada)' : ''}
-                          </span>
-                        )}
-                        {sub.comment_count > 0 && <span><MessageCircle size={10} /> {sub.comment_count}</span>}
-                        {sub.total_time_seconds > 0 && <span style={{ color: '#FFB300' }}><Clock size={10} /> {formatTime(sub.total_time_seconds)}</span>}
-                      </div>
+                      ) : (
+                        <div onClick={() => navigate(`/tasks/${sub.id}`)} style={{ cursor: 'pointer' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                              <span style={{ width: 22, height: 22, borderRadius: '50%', background: sub.stage_color || '#6B6580', color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{sub.subtask_position}</span>
+                              <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-heading)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {sub.title.replace(' - ' + task.title, '').replace(task.title + ' - ', '')}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                              <span className="stage-badge" style={{ background: `${sub.stage_color}20`, color: sub.stage_color }}>{sub.stage_name}</span>
+                              {canEdit && (
+                                <button className="btn btn-secondary btn-sm" onClick={e => { e.stopPropagation(); startEditSub(sub) }} title="Editar rapido (sem sair)" style={{ padding: '4px 7px', fontSize: 10 }}>
+                                  <Edit3 size={10} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#6B6580', flexWrap: 'wrap' }}>
+                            {sub.department_name && (
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: sub.department_color }} />
+                                {sub.department_name}
+                              </span>
+                            )}
+                            {sub.assigned_name && <span><User size={10} /> {sub.assigned_name}</span>}
+                            {sub.due_date && (
+                              <span style={{ color: isOverdueSub ? '#FF6B6B' : '#6B6580', fontWeight: isOverdueSub ? 700 : 400, display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <Clock size={10} /> {sub.due_date.slice(0, 10)}{isOverdueSub ? ' (atrasada)' : ''}
+                              </span>
+                            )}
+                            {sub.comment_count > 0 && <span><MessageCircle size={10} /> {sub.comment_count}</span>}
+                            {sub.total_time_seconds > 0 && <span style={{ color: '#FFB300' }}><Clock size={10} /> {formatTime(sub.total_time_seconds)}</span>}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -969,12 +1054,7 @@ export default function TaskDetail() {
             </div>
             <div className="form-group">
               <label>Responsaveis</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {users.filter(u => u.role !== 'cliente').map(u => {
-                  const sel = newSub.assigned_to.includes(String(u.id))
-                  return <button type="button" key={u.id} onClick={() => setNewSub(p => ({ ...p, assigned_to: sel ? p.assigned_to.filter(x => x !== String(u.id)) : [...p.assigned_to, String(u.id)] }))} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${sel ? '#34C759' : 'rgba(255,255,255,0.08)'}`, background: sel ? 'rgba(52,199,89,0.12)' : 'transparent', color: sel ? '#34C759' : '#9B96B0', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>{sel ? '✓ ' : ''}{u.name}</button>
-                })}
-              </div>
+              <AssigneesMultiSelect users={users} selected={newSub.assigned_to} onChange={arr => setNewSub(p => ({ ...p, assigned_to: arr }))} />
             </div>
             <div className="form-row">
               <div className="form-group"><label>Prazo</label><input className="input" type="date" value={newSub.due_date} onChange={e => setNewSub(p => ({ ...p, due_date: e.target.value }))} /></div>
@@ -984,47 +1064,80 @@ export default function TaskDetail() {
               <div className="form-group"><label>Link Drive (Arquivo Bruto)</label><input className="input" value={newSub.drive_link_raw} onChange={e => setNewSub(p => ({ ...p, drive_link_raw: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
               <div className="form-group"><label>Link Drive (Arquivo Pronto)</label><input className="input" value={newSub.drive_link} onChange={e => setNewSub(p => ({ ...p, drive_link: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
             </div>
-            <div style={{ padding: '14px 16px', background: 'rgba(245,166,35,0.04)', border: '1px solid rgba(245,166,35,0.12)', borderRadius: 10, marginBottom: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#F5A623', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Conteudo para Aprovacao (opcional)</div>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#A8A3B8', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={newSubIsCarrossel} onChange={e => {
-                    const checked = e.target.checked
-                    if (checked) {
-                      setNewSubIsCarrossel(true)
-                      setNewSubFiles(newSub.approval_link ? [newSub.approval_link] : [''])
-                    } else {
-                      setNewSubIsCarrossel(false)
-                      setNewSub(p => ({ ...p, approval_link: newSubFiles[0] || '' }))
-                    }
-                  }} style={{ accentColor: '#FFB300' }} />
-                  Carrossel (varios arquivos)
-                </label>
-              </div>
-              {newSubIsCarrossel ? (
-                <div className="form-group">
-                  <label>Arquivos do carrossel</label>
-                  {newSubFiles.map((url, idx) => (
-                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                      <span style={{ minWidth: 56, fontSize: 11, color: '#6B6580', fontWeight: 700 }}>Slide {idx + 1}</span>
-                      <input className="input" value={url} placeholder="Link do Drive (publico)" style={{ flex: 1 }} onChange={e => setNewSubFiles(arr => arr.map((x, i) => i === idx ? e.target.value : x))} />
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewSubFiles(arr => arr.filter((_, i) => i !== idx))} title="Remover" style={{ padding: '6px 10px' }}><X size={12} /></button>
-                    </div>
-                  ))}
-                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewSubFiles(arr => [...arr, ''])} style={{ marginTop: 4 }}><Plus size={12} /> Adicionar slide</button>
-                </div>
-              ) : (
-                <div className="form-group"><label>Link do arquivo finalizado</label><input className="input" value={newSub.approval_link} onChange={e => setNewSub(p => ({ ...p, approval_link: e.target.value }))} placeholder="Link do Drive — compartilhamento: qualquer pessoa com o link" /><small style={{ fontSize: 11, color: '#6B6580', marginTop: 4, display: 'block' }}>O cliente vai ver o video/imagem embutido. Precisa estar publico no Drive.</small></div>
-              )}
-              <div className="form-group"><label>Texto / Legenda</label><textarea className="input" rows={3} value={newSub.approval_text} onChange={e => setNewSub(p => ({ ...p, approval_text: e.target.value }))} placeholder="Legenda do post, texto da publicacao, descricao..." /></div>
-              <div className="form-row">
-                <div className="form-group"><label>Data da Publicacao</label><input className="input" type="date" value={newSub.publish_date} onChange={e => setNewSub(p => ({ ...p, publish_date: e.target.value }))} /></div>
-                <div className="form-group"><label>Objetivo da Publicacao</label><input className="input" value={newSub.publish_objective} onChange={e => setNewSub(p => ({ ...p, publish_objective: e.target.value }))} placeholder="Ex: Gerar leads, engajamento..." /></div>
-              </div>
-            </div>
+            {/* Conteudo pra aprovacao — pedido em popup quando mover a subtarefa pra 'Aguardando Cliente' */}
             <div className="modal-actions">
               <button className="btn btn-secondary" onClick={() => setShowNewSub(false)}>Cancelar</button>
               <button className="btn btn-primary" onClick={handleAddSubtask} disabled={savingSub || !newSub.title}>{savingSub ? 'Adicionando...' : 'Adicionar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Popup: coleta conteudo pra aprovacao ao mover pra 'aguardando_cliente'/'aprovacao_interna' */}
+      {approvalPopup && (
+        <div className="modal-overlay" onMouseDown={e => { if (e.target === e.currentTarget && !approvalPopupSaving) setApprovalPopup(null) }}>
+          <div className="modal" style={{ maxWidth: 620 }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ExternalLink size={18} style={{ color: '#F5A623' }} /> Conteudo pra aprovacao
+            </h2>
+            <p style={{ fontSize: 12, color: '#9B96B0', marginTop: -6, marginBottom: 14, lineHeight: 1.5 }}>
+              Preenche o link do arquivo, legenda e data pra publicacao. O cliente vai ver isso na aprovacao.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 10 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#A8A3B8', cursor: 'pointer' }}>
+                <input type="checkbox" checked={approvalPopupData.is_carrossel} onChange={e => {
+                  const checked = e.target.checked
+                  setApprovalPopupData(p => {
+                    if (checked) {
+                      const initial = p.approval_files.length > 0 && p.approval_files.some(x => x) ? p.approval_files : (p.approval_link ? [p.approval_link] : [''])
+                      return { ...p, is_carrossel: true, approval_files: initial }
+                    } else {
+                      const first = p.approval_files[0] || p.approval_link || ''
+                      return { ...p, is_carrossel: false, approval_link: first, approval_files: first ? [first] : [] }
+                    }
+                  })
+                }} style={{ accentColor: '#FFB300' }} />
+                Carrossel (varios arquivos)
+              </label>
+            </div>
+            {approvalPopupData.is_carrossel ? (
+              <div className="form-group">
+                <label>Arquivos do carrossel *</label>
+                {approvalPopupData.approval_files.map((url, idx) => (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                    <span style={{ minWidth: 56, fontSize: 11, color: '#6B6580', fontWeight: 700 }}>Slide {idx + 1}</span>
+                    <input className="input" value={url} placeholder="Link do Drive (publico)" style={{ flex: 1 }} onChange={e => setApprovalPopupData(p => ({ ...p, approval_files: p.approval_files.map((x, i) => i === idx ? e.target.value : x) }))} />
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setApprovalPopupData(p => ({ ...p, approval_files: p.approval_files.filter((_, i) => i !== idx) }))} title="Remover" style={{ padding: '6px 10px' }}><X size={12} /></button>
+                  </div>
+                ))}
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setApprovalPopupData(p => ({ ...p, approval_files: [...p.approval_files, ''] }))} style={{ marginTop: 4 }}><Plus size={12} /> Adicionar slide</button>
+              </div>
+            ) : (
+              <div className="form-group">
+                <label>Link do arquivo finalizado *</label>
+                <input className="input" autoFocus value={approvalPopupData.approval_link} onChange={e => setApprovalPopupData(p => ({ ...p, approval_link: e.target.value }))} placeholder="Link do Drive — compartilhamento: qualquer pessoa com o link" />
+                <small style={{ fontSize: 11, color: '#6B6580', marginTop: 4, display: 'block' }}>Precisa estar publico no Drive pro cliente conseguir abrir.</small>
+              </div>
+            )}
+            <div className="form-group">
+              <label>Texto / Legenda</label>
+              <textarea className="input" rows={3} value={approvalPopupData.approval_text} onChange={e => setApprovalPopupData(p => ({ ...p, approval_text: e.target.value }))} placeholder="Legenda do post, texto da publicacao..." />
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Data da Publicacao</label>
+                <input className="input" type="date" value={approvalPopupData.publish_date} onChange={e => setApprovalPopupData(p => ({ ...p, publish_date: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label>Objetivo da Publicacao</label>
+                <input className="input" value={approvalPopupData.publish_objective} onChange={e => setApprovalPopupData(p => ({ ...p, publish_objective: e.target.value }))} placeholder="Ex: Gerar leads, engajamento..." />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setApprovalPopup(null)} disabled={approvalPopupSaving}>Cancelar</button>
+              <button className="btn btn-primary" onClick={handleApprovalPopupConfirm} disabled={approvalPopupSaving}>
+                {approvalPopupSaving ? 'Enviando...' : `Enviar pra ${approvalPopup.targetStage === 'aguardando_cliente' ? 'aprovacao do cliente' : 'aprovacao interna'}`}
+              </button>
             </div>
           </div>
         </div>

@@ -461,6 +461,10 @@ const taskTplCols = [
   ['mode', "TEXT DEFAULT 'auto'"],
   // Espelha tasks.sequential_subtasks — quando template gera task mae, propaga essa flag.
   ['sequential_subtasks', 'INTEGER NOT NULL DEFAULT 0'],
+  // is_recurring=1 (default): template roda automatico via cron (bate next_run_at).
+  // is_recurring=0: modelo de biblioteca — nunca cria automatico, so por aplicacao manual (botao 'Usar modelo').
+  //   Nesse caso recurrence_type/recurrence_day podem ser NULL e next_run_at eh sempre NULL.
+  ['is_recurring', 'INTEGER NOT NULL DEFAULT 1'],
 ]
 for (const [col, def] of taskTplCols) {
   try { db.exec(`ALTER TABLE task_templates ADD COLUMN ${col} ${def}`) } catch {}
