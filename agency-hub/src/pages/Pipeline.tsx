@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useSSE } from '../context/SSEContext'
-import { fetchPipelineTasks, fetchClients, fetchDepartments, fetchUsers, fetchCategories, createTask, createEditorialTask, createMaeTask, moveTaskStage, type Task, type PipelineStage, type Client, type Department, type User as UserT, type TaskCategory } from '../lib/api'
+import { fetchPipelineTasks, fetchClients, fetchDepartments, fetchUsers, fetchCategories, createTask, createEditorialTask, createMaeTask, addSubtask, saveTaskAsTemplate, moveTaskStage, type Task, type PipelineStage, type Client, type Department, type User as UserT, type TaskCategory } from '../lib/api'
 import { Clock, Building2, User, ExternalLink, ChevronDown, ChevronRight, ArrowRight, Search, AlertTriangle, Plus, Layers, X, Repeat } from 'lucide-react'
 import { useToast } from '../components/Toast'
 import TaskTemplateModal from '../components/TaskTemplateModal'
@@ -74,6 +74,8 @@ export default function Pipeline() {
   const [newMae, setNewMae] = useState({ title: '', client_id: '', description: '', due_date: today, category_id: '', department_id: '', priority: 'normal', assigned_to: [] as string[], drive_link: '', drive_link_raw: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '', sequential_subtasks: false })
   const [newMaeIsCarrossel, setNewMaeIsCarrossel] = useState(false)
   const [newMaeFiles, setNewMaeFiles] = useState<string[]>([''])
+  const [newMaeSubs, setNewMaeSubs] = useState<Array<{ title: string; priority: string; department_id: string; assigned_to: string[] }>>([])
+  const [newMaeSaveAsTemplate, setNewMaeSaveAsTemplate] = useState(false)
   const [newTask, setNewTask] = useState({ title: '', description: '', client_id: '', category_id: '', department_id: '', assigned_to: [] as string[], due_date: today, priority: 'normal', drive_link_raw: '', drive_link: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '', recording_date: '', recording_time: '' })
   const [newTaskIsCarrossel, setNewTaskIsCarrossel] = useState(false)
   const [newTaskFiles, setNewTaskFiles] = useState<string[]>([''])
@@ -133,8 +135,8 @@ export default function Pipeline() {
     if (!newMae.title || !newMae.client_id) return
     setSaving(true)
     try {
-      const approval_files = newMaeIsCarrossel ? newMaeFiles.filter(s => s && s.trim()) : (newMae.approval_link ? [newMae.approval_link] : [])
-      await createMaeTask({
+      const validSubs = newMaeSubs.filter(s => s.title && s.title.trim())
+      const created = await createMaeTask({
         client_id: +newMae.client_id,
         title: newMae.title,
         description: newMae.description || undefined,
@@ -145,17 +147,44 @@ export default function Pipeline() {
         assigned_to: newMae.assigned_to.map(Number),
         drive_link: newMae.drive_link || undefined,
         drive_link_raw: newMae.drive_link_raw || undefined,
-        approval_files,
-        approval_text: newMae.approval_text || undefined,
-        publish_date: newMae.publish_date || undefined,
-        publish_objective: newMae.publish_objective || undefined,
         sequential_subtasks: newMae.sequential_subtasks,
       })
+      let subsCreated = 0
+      let subsFailed = 0
+      for (const sub of validSubs) {
+        try {
+          await addSubtask(created.id, {
+            title: sub.title.trim(),
+            priority: sub.priority || 'normal',
+            department_id: sub.department_id ? +sub.department_id : undefined,
+            assigned_to: sub.assigned_to.map(Number),
+            due_date: newMae.due_date || undefined,
+          })
+          subsCreated++
+        } catch (subErr: any) {
+          console.error('Falha ao criar subtarefa:', sub.title, subErr)
+          subsFailed++
+        }
+      }
+      let templateSaved = false
+      if (newMaeSaveAsTemplate) {
+        try {
+          await saveTaskAsTemplate(created.id, newMae.title)
+          templateSaved = true
+        } catch (tplErr: any) {
+          console.error('Falha ao salvar como modelo:', tplErr)
+          toast('Mae criada mas nao consegui salvar como modelo: ' + (tplErr.message || 'erro'), 'error')
+        }
+      }
       setShowNewMae(false)
-      setNewMae({ title: '', client_id: '', description: '', due_date: today, category_id: '', department_id: '', priority: 'normal', assigned_to: [], drive_link: '', drive_link_raw: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '' })
-      setNewMaeIsCarrossel(false); setNewMaeFiles([''])
+      setNewMae({ title: '', client_id: '', description: '', due_date: today, category_id: '', department_id: '', priority: 'normal', assigned_to: [], drive_link: '', drive_link_raw: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '', sequential_subtasks: false })
+      setNewMaeIsCarrossel(false); setNewMaeFiles(['']); setNewMaeSubs([]); setNewMaeSaveAsTemplate(false)
       loadData()
-      toast('Tarefa Mae criada — abra ela e adicione as subtarefas')
+      const parts: string[] = ['Tarefa Mae criada']
+      if (subsCreated > 0) parts.push(`${subsCreated} subtarefa${subsCreated > 1 ? 's' : ''}`)
+      if (subsFailed > 0) parts.push(`${subsFailed} falharam`)
+      if (templateSaved) parts.push('modelo salvo')
+      toast(parts.join(' · '))
     } catch (err: any) { toast(err.message || 'Erro ao criar tarefa mae', 'error') }
     finally { setSaving(false) }
   }
@@ -533,6 +562,57 @@ export default function Pipeline() {
             <div className="form-group"><label>Link Drive (Arquivo Pronto)</label><input className="input" value={newMae.drive_link} onChange={e => setNewMae(p => ({ ...p, drive_link: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
           </div>
           {/* Conteudo pra aprovacao — pedido em popup quando mover a tarefa pra 'Aguardando Cliente' */}
+
+          {/* Subtarefas inline — cria junto com a mae */}
+          <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(255,179,0,0.04)', border: '1px solid rgba(255,179,0,0.15)', borderRadius: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#FFB300', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Subtarefas ({newMaeSubs.length})
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewMaeSubs(prev => [...prev, { title: '', priority: 'normal', department_id: '', assigned_to: [] }])} style={{ fontSize: 11 }}>
+                <Plus size={11} /> Adicionar
+              </button>
+            </div>
+            {newMaeSubs.length === 0 ? (
+              <div style={{ fontSize: 11, color: '#9B96B0', textAlign: 'center', padding: '10px 0' }}>
+                Nenhuma. Clica em Adicionar pra ja criar subtarefas junto com a mae.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {newMaeSubs.map((sub, idx) => (
+                  <div key={idx} style={{ padding: 10, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                      <span style={{ width: 22, height: 22, borderRadius: '50%', background: '#FFB30020', color: '#FFB300', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                      <input className="input" value={sub.title} onChange={e => setNewMaeSubs(prev => prev.map((s, i) => i === idx ? { ...s, title: e.target.value } : s))} placeholder="Ex: Edicao / Design / Postar" style={{ flex: 1, fontSize: 12 }} autoFocus={sub.title === ''} />
+                      <button type="button" className="btn btn-secondary btn-sm btn-icon" onClick={() => setNewMaeSubs(prev => prev.filter((_, i) => i !== idx))} title="Remover" style={{ padding: '6px 8px' }}><X size={12} /></button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 6, marginBottom: 6 }}>
+                      <select className="select" value={sub.department_id} onChange={e => setNewMaeSubs(prev => prev.map((s, i) => i === idx ? { ...s, department_id: e.target.value } : s))} style={{ fontSize: 11 }}>
+                        <option value="">Sem depto</option>
+                        {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                      <select className="select" value={sub.priority} onChange={e => setNewMaeSubs(prev => prev.map((s, i) => i === idx ? { ...s, priority: e.target.value } : s))} style={{ fontSize: 11 }}>
+                        <option value="low">Baixa</option><option value="normal">Normal</option><option value="high">Alta</option><option value="urgent">Urgente</option>
+                      </select>
+                    </div>
+                    <AssigneesMultiSelect users={allUsers} selected={sub.assigned_to} onChange={arr => setNewMaeSubs(prev => prev.map((s, i) => i === idx ? { ...s, assigned_to: arr } : s))} placeholder="Responsaveis" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Salvar como modelo */}
+          <div style={{ marginTop: 12, padding: '10px 12px', background: 'rgba(126,231,135,0.05)', border: '1px solid rgba(126,231,135,0.20)', borderRadius: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', margin: 0 }}>
+              <input type="checkbox" checked={newMaeSaveAsTemplate} onChange={e => setNewMaeSaveAsTemplate(e.target.checked)} style={{ marginTop: 3, accentColor: '#7ee787' }} />
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: '#7ee787' }}>Tambem salvar como modelo</div>
+                <small style={{ color: '#9B96B0', fontSize: 11, display: 'block', marginTop: 2 }}>Salva essa mae + subtarefas na biblioteca de modelos pra reutilizar depois.</small>
+              </div>
+            </label>
+          </div>
+
           <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setShowNewMae(false)}>Cancelar</button><button className="btn btn-primary" onClick={handleCreateMae} disabled={saving || !newMae.title || !newMae.client_id}>{saving ? 'Criando...' : 'Criar Tarefa Mae'}</button></div>
         </div></div>
       )}
