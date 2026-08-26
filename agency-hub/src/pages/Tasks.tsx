@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   fetchTasks, fetchClients, fetchDepartments, fetchUsers, fetchCategories, fetchStages,
-  createTask, createTaskRequest, createMaeTask, addSubtask, saveTaskAsTemplate, bulkMoveTasks, bulkAssignTasks, formatNumber,
+  createTask, createTaskRequest, createMaeTask, addSubtask, saveTaskAsTemplate, addChecklistItem, bulkMoveTasks, bulkAssignTasks, formatNumber,
   type Task, type Client, type Department, type User as UserT, type TaskCategory, type PipelineStage,
 } from '../lib/api'
 import { Plus, Clock, Building2, User, ExternalLink, Download, AlertTriangle, CheckSquare, Square, Users, ArrowRight, ArrowUpDown, Filter, X, Repeat } from 'lucide-react'
@@ -95,6 +95,7 @@ export default function Tasks() {
   const [newRequest, setNewRequest] = useState({ title: '', description: '', drive_link_raw: '' })
   const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
   const [newTask, setNewTask] = useState({ title: '', description: '', client_id: '', category_id: '', department_id: '', assigned_to: [] as string[], due_date: today, priority: 'normal', drive_link: '' })
+  const [newTaskChecklist, setNewTaskChecklist] = useState<string[]>([])
   const [newMae, setNewMae] = useState({ title: '', client_id: '', description: '', due_date: today, category_id: '', department_id: '', priority: 'normal', assigned_to: [] as string[], drive_link: '', drive_link_raw: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '', sequential_subtasks: false })
   const [newMaeIsCarrossel, setNewMaeIsCarrossel] = useState(false)
   const [newMaeFiles, setNewMaeFiles] = useState<string[]>([''])
@@ -153,9 +154,17 @@ export default function Tasks() {
     if (!newTask.title || !newTask.client_id) return
     setSaving(true)
     try {
-      await createTask({ ...newTask, client_id: +newTask.client_id, category_id: newTask.category_id ? +newTask.category_id : undefined, department_id: newTask.department_id ? +newTask.department_id : undefined, assigned_to: newTask.assigned_to.map(Number) } as any)
-      setShowNew(false); setNewTask({ title: '', description: '', client_id: '', category_id: '', department_id: '', assigned_to: [] as string[], due_date: today, priority: 'normal', drive_link: '' }); loadTasks()
-      toast('Tarefa criada com sucesso!')
+      const created = await createTask({ ...newTask, client_id: +newTask.client_id, category_id: newTask.category_id ? +newTask.category_id : undefined, department_id: newTask.department_id ? +newTask.department_id : undefined, assigned_to: newTask.assigned_to.map(Number) } as any)
+      // Cria checklist items (se houver) em batch
+      const validItems = newTaskChecklist.filter(t => t && t.trim())
+      for (const text of validItems) {
+        try { await addChecklistItem(created.id, text.trim()) } catch (e) { console.error('checklist:', e) }
+      }
+      setShowNew(false)
+      setNewTask({ title: '', description: '', client_id: '', category_id: '', department_id: '', assigned_to: [] as string[], due_date: today, priority: 'normal', drive_link: '' })
+      setNewTaskChecklist([])
+      loadTasks()
+      toast(`Tarefa criada${validItems.length > 0 ? ` com ${validItems.length} item(s) no checklist` : ''}`)
     } catch (err: any) { toast(err.message || 'Erro ao criar tarefa', 'error') }
     finally { setSaving(false) }
   }
@@ -402,6 +411,34 @@ export default function Tasks() {
             <div className="form-group"><label>Prioridade</label><select className="select" value={newTask.priority} onChange={e => setNewTask(p => ({ ...p, priority: e.target.value }))}><option value="low">Baixa</option><option value="normal">Normal</option><option value="high">Alta</option><option value="urgent">Urgente</option></select></div>
           </div>
           <div className="form-group"><label>Link Drive (Arquivo Bruto)</label><input className="input" value={newTask.drive_link} onChange={e => setNewTask(p => ({ ...p, drive_link: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
+
+          {/* Checklist inline — bloqueia conclusao ate marcar todos */}
+          <div style={{ marginTop: 8, padding: '12px 14px', background: 'rgba(93,173,226,0.04)', border: '1px solid rgba(93,173,226,0.15)', borderRadius: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#5DADE2', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Checklist ({newTaskChecklist.filter(t => t.trim()).length})
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewTaskChecklist(prev => [...prev, ''])} style={{ fontSize: 11 }}>
+                <Plus size={11} /> Adicionar
+              </button>
+            </div>
+            {newTaskChecklist.length === 0 ? (
+              <div style={{ fontSize: 11, color: '#9B96B0', textAlign: 'center', padding: '6px 0' }}>
+                Sem checklist. Se adicionar, a tarefa so pode ser concluida quando todos estiverem marcados.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {newTaskChecklist.map((text, idx) => (
+                  <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 10, color: '#6B6580', minWidth: 16 }}>{idx + 1}.</span>
+                    <input className="input" value={text} onChange={e => setNewTaskChecklist(prev => prev.map((t, i) => i === idx ? e.target.value : t))} placeholder="Ex: Confirmar link, revisar copy, testar..." style={{ flex: 1, fontSize: 12 }} autoFocus={text === ''} />
+                    <button type="button" className="btn btn-secondary btn-sm btn-icon" onClick={() => setNewTaskChecklist(prev => prev.filter((_, i) => i !== idx))} title="Remover" style={{ padding: '5px 7px' }}><X size={11} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setShowNew(false)}>Cancelar</button><button className="btn btn-primary" onClick={handleCreate} disabled={saving}>{saving ? 'Criando...' : 'Criar Tarefa'}</button></div>
         </div></div>
       )}

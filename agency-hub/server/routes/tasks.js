@@ -647,7 +647,57 @@ router.get('/:id', (req, res) => {
     }
   }
 
-  res.json({ task, comments, history, attachments, timeEntries, totalTimeSeconds, activeTimer })
+  // Checklist da tarefa (bloqueia conclusao se algum nao done)
+  const checklist = db.prepare('SELECT id, position, text, done, done_at FROM task_checklist_items WHERE task_id = ? ORDER BY position, id').all(task.id)
+
+  res.json({ task, comments, history, attachments, timeEntries, totalTimeSeconds, activeTimer, checklist })
+})
+
+// ============ CHECKLIST ============
+// GET /:id/checklist
+router.get('/:id/checklist', (req, res) => {
+  const task = db.prepare('SELECT id, client_id FROM tasks WHERE id = ?').get(req.params.id)
+  if (!task) return res.status(404).json({ error: 'Tarefa nao encontrada' })
+  if (req.user.role === 'cliente' && task.client_id !== req.user.client_id) return res.status(403).json({ error: 'Forbidden' })
+  const items = db.prepare('SELECT id, position, text, done, done_at FROM task_checklist_items WHERE task_id = ? ORDER BY position, id').all(task.id)
+  res.json({ checklist: items })
+})
+
+// POST /:id/checklist — add item
+router.post('/:id/checklist', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
+  const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(req.params.id)
+  if (!task) return res.status(404).json({ error: 'Tarefa nao encontrada' })
+  const text = (req.body?.text || '').trim()
+  if (!text) return res.status(400).json({ error: 'text obrigatorio' })
+  const maxPos = db.prepare('SELECT COALESCE(MAX(position), 0) as m FROM task_checklist_items WHERE task_id = ?').get(task.id).m
+  const r = db.prepare('INSERT INTO task_checklist_items (task_id, position, text) VALUES (?, ?, ?)').run(task.id, maxPos + 1, text)
+  const item = db.prepare('SELECT id, position, text, done, done_at FROM task_checklist_items WHERE id = ?').get(r.lastInsertRowid)
+  res.json({ item })
+})
+
+// PUT /checklist/:itemId — toggle done ou editar text
+router.put('/checklist/:itemId', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
+  const item = db.prepare('SELECT * FROM task_checklist_items WHERE id = ?').get(req.params.itemId)
+  if (!item) return res.status(404).json({ error: 'Item nao encontrado' })
+  const sets = [], params = []
+  if (req.body.text !== undefined) { sets.push('text = ?'); params.push(String(req.body.text).trim()) }
+  if (req.body.done !== undefined) {
+    const done = req.body.done ? 1 : 0
+    sets.push('done = ?'); params.push(done)
+    sets.push('done_at = ?'); params.push(done ? new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ') : null)
+  }
+  if (req.body.position !== undefined) { sets.push('position = ?'); params.push(parseInt(req.body.position) || 0) }
+  if (sets.length === 0) return res.status(400).json({ error: 'Nada pra atualizar' })
+  params.push(req.params.itemId)
+  db.prepare(`UPDATE task_checklist_items SET ${sets.join(', ')} WHERE id = ?`).run(...params)
+  const updated = db.prepare('SELECT id, position, text, done, done_at FROM task_checklist_items WHERE id = ?').get(req.params.itemId)
+  res.json({ item: updated })
+})
+
+// DELETE /checklist/:itemId
+router.delete('/checklist/:itemId', requireRole('dono', 'gerente', 'funcionario'), (req, res) => {
+  db.prepare('DELETE FROM task_checklist_items WHERE id = ?').run(req.params.itemId)
+  res.json({ ok: true })
 })
 
 // Update task
@@ -739,6 +789,15 @@ router.put('/:id/stage', (req, res) => {
   // Require approval_link for approval stages
   if ((stage === 'aprovacao_interna' || stage === 'aguardando_cliente') && !task.approval_link) {
     return res.status(400).json({ error: 'Preencha o conteudo de aprovacao (link + texto) antes de enviar pra aprovacao' })
+  }
+
+  // Checklist: se tem items e algum nao esta done, bloqueia conclusao
+  if (stage === 'concluido') {
+    const pending = db.prepare('SELECT COUNT(*) as n FROM task_checklist_items WHERE task_id = ? AND done = 0').get(task.id).n
+    if (pending > 0) {
+      const total = db.prepare('SELECT COUNT(*) as n FROM task_checklist_items WHERE task_id = ?').get(task.id).n
+      return res.status(400).json({ error: `Checklist tem ${pending} item(s) pendente(s) de ${total}. Marca todos antes de concluir.` })
+    }
   }
 
   // Editorial workflow: Briefing -> concluido requires meeting_datetime

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useSSE } from '../context/SSEContext'
-import { fetchPipelineTasks, fetchClients, fetchDepartments, fetchUsers, fetchCategories, createTask, createEditorialTask, createMaeTask, addSubtask, saveTaskAsTemplate, moveTaskStage, type Task, type PipelineStage, type Client, type Department, type User as UserT, type TaskCategory } from '../lib/api'
+import { fetchPipelineTasks, fetchClients, fetchDepartments, fetchUsers, fetchCategories, createTask, createEditorialTask, createMaeTask, addSubtask, saveTaskAsTemplate, addChecklistItem, moveTaskStage, type Task, type PipelineStage, type Client, type Department, type User as UserT, type TaskCategory } from '../lib/api'
 import { Clock, Building2, User, ExternalLink, ChevronDown, ChevronRight, ArrowRight, Search, AlertTriangle, Plus, Layers, X, Repeat } from 'lucide-react'
 import { useToast } from '../components/Toast'
 import TaskTemplateModal from '../components/TaskTemplateModal'
@@ -79,6 +79,7 @@ export default function Pipeline() {
   const [newTask, setNewTask] = useState({ title: '', description: '', client_id: '', category_id: '', department_id: '', assigned_to: [] as string[], due_date: today, priority: 'normal', drive_link_raw: '', drive_link: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '', recording_date: '', recording_time: '' })
   const [newTaskIsCarrossel, setNewTaskIsCarrossel] = useState(false)
   const [newTaskFiles, setNewTaskFiles] = useState<string[]>([''])
+  const [newTaskChecklist, setNewTaskChecklist] = useState<string[]>([])
   const isDono = user?.role === 'dono'
   const isFunc = user?.role === 'funcionario' || user?.role === 'gerente'
 
@@ -122,11 +123,15 @@ export default function Pipeline() {
     try {
       const recording_datetime = newTask.recording_date ? `${newTask.recording_date}T${newTask.recording_time || '09:00'}` : undefined
       const approval_files = newTaskIsCarrossel ? newTaskFiles.filter(s => s && s.trim()) : (newTask.approval_link ? [newTask.approval_link] : [])
-      await createTask({ ...newTask, client_id: +newTask.client_id, category_id: newTask.category_id ? +newTask.category_id : undefined, department_id: newTask.department_id ? +newTask.department_id : undefined, assigned_to: newTask.assigned_to.map(Number), recording_datetime, approval_files } as any)
+      const created = await createTask({ ...newTask, client_id: +newTask.client_id, category_id: newTask.category_id ? +newTask.category_id : undefined, department_id: newTask.department_id ? +newTask.department_id : undefined, assigned_to: newTask.assigned_to.map(Number), recording_datetime, approval_files } as any)
+      const validItems = newTaskChecklist.filter(t => t && t.trim())
+      for (const text of validItems) {
+        try { await addChecklistItem(created.id, text.trim()) } catch (e) { console.error('checklist:', e) }
+      }
       setShowNew(false); setNewTask({ title: '', description: '', client_id: '', category_id: '', department_id: '', assigned_to: [], due_date: today, priority: 'normal', drive_link_raw: '', drive_link: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '', recording_date: '', recording_time: '' })
-      setNewTaskIsCarrossel(false); setNewTaskFiles([''])
+      setNewTaskIsCarrossel(false); setNewTaskFiles(['']); setNewTaskChecklist([])
       loadData()
-      toast('Tarefa criada com sucesso!')
+      toast(`Tarefa criada${validItems.length > 0 ? ` com ${validItems.length} item(s) no checklist` : ''}`)
     } catch (err: any) { toast(err.message || 'Erro ao criar tarefa', 'error') }
     finally { setSaving(false) }
   }
@@ -475,6 +480,33 @@ export default function Pipeline() {
               </div>
             )
           })()}
+          {/* Checklist inline — bloqueia conclusao ate marcar todos */}
+          <div style={{ marginTop: 8, padding: '12px 14px', background: 'rgba(93,173,226,0.04)', border: '1px solid rgba(93,173,226,0.15)', borderRadius: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#5DADE2', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Checklist ({newTaskChecklist.filter(t => t.trim()).length})
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewTaskChecklist(prev => [...prev, ''])} style={{ fontSize: 11 }}>
+                <Plus size={11} /> Adicionar
+              </button>
+            </div>
+            {newTaskChecklist.length === 0 ? (
+              <div style={{ fontSize: 11, color: '#9B96B0', textAlign: 'center', padding: '6px 0' }}>
+                Sem checklist. Se adicionar, a tarefa so pode ser concluida quando todos estiverem marcados.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {newTaskChecklist.map((text, idx) => (
+                  <div key={idx} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 10, color: '#6B6580', minWidth: 16 }}>{idx + 1}.</span>
+                    <input className="input" value={text} onChange={e => setNewTaskChecklist(prev => prev.map((t, i) => i === idx ? e.target.value : t))} placeholder="Ex: Confirmar link, revisar copy, testar..." style={{ flex: 1, fontSize: 12 }} autoFocus={text === ''} />
+                    <button type="button" className="btn btn-secondary btn-sm btn-icon" onClick={() => setNewTaskChecklist(prev => prev.filter((_, i) => i !== idx))} title="Remover" style={{ padding: '5px 7px' }}><X size={11} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setShowNew(false)}>Cancelar</button><button className="btn btn-primary" onClick={handleCreateTask} disabled={saving}>{saving ? 'Criando...' : 'Criar Tarefa'}</button></div>
         </div></div>
       )}

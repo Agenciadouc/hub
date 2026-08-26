@@ -360,6 +360,20 @@ try {
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_task_id)") } catch {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_subtask_kind ON tasks(subtask_kind)") } catch {}
 
+// Checklist items — bloqueia conclusao da tarefa se algum item nao estiver done
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS task_checklist_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    text TEXT NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now', '-3 hours')),
+    done_at TEXT
+  )`)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_checklist_task ON task_checklist_items(task_id, position)')
+} catch (e) { console.error('[db] checklist table err:', e.message) }
+
 // =====================================================================
 // Tarefas recorrentes — templates que o cron usa pra criar tasks novas
 // =====================================================================

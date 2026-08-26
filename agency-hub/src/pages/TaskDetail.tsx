@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useSSE } from '../context/SSEContext'
-import { fetchTask, fetchClients, fetchDepartments, fetchUsers, fetchCategories, fetchStages, updateTask, moveTaskStage, addTaskComment, addTaskAttachment, deleteTaskAttachment, approveTask, rejectTask, startTimer, stopTimer, confirmRecording, addSubtask, getApprovalFiles, convertTaskToMae, saveTaskAsTemplate, type Task, type TaskComment, type TaskHistory, type TaskAttachment, type TimeEntry, type Client, type Department, type User as UserT, type TaskCategory, type PipelineStage } from '../lib/api'
+import { fetchTask, fetchClients, fetchDepartments, fetchUsers, fetchCategories, fetchStages, updateTask, moveTaskStage, addTaskComment, addTaskAttachment, deleteTaskAttachment, approveTask, rejectTask, startTimer, stopTimer, confirmRecording, addSubtask, getApprovalFiles, convertTaskToMae, saveTaskAsTemplate, addChecklistItem, updateChecklistItem, deleteChecklistItem, type Task, type TaskComment, type TaskHistory, type TaskAttachment, type TimeEntry, type Client, type Department, type User as UserT, type TaskCategory, type PipelineStage, type ChecklistItem } from '../lib/api'
 import { isDriveUrl, toDriveEmbedUrl } from '../lib/drive'
 import { ArrowLeft, Building2, Clock, User, ExternalLink, CheckCircle, XCircle, Send, MessageCircle, GitBranch, Paperclip, Eye, Edit3, Save, X, Plus, AlertTriangle, Layers, ChevronRight, ChevronDown, Video, Trash2, FileText } from 'lucide-react'
 import { useToast } from '../components/Toast'
@@ -27,6 +27,8 @@ export default function TaskDetail() {
   const [parentInfoOpen, setParentInfoOpen] = useState(true)  // secao "detalhes da mae" comeca aberta
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([])
   const [totalTime, setTotalTime] = useState(0)
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([])
+  const [newChecklistText, setNewChecklistText] = useState('')
   const [activeTimerEntry, setActiveTimerEntry] = useState<TimeEntry | null>(null)
   const [timerRunning, setTimerRunning] = useState(false)
   const [timerElapsed, setTimerElapsed] = useState(0)
@@ -73,8 +75,30 @@ export default function TaskDetail() {
     const files = getApprovalFiles(data.task as any)
     setEditData({ title: data.task.title, description: data.task.description || '', due_date: data.task.due_date?.slice(0, 10) || '', priority: data.task.priority, department_id: data.task.department_id || '', assigned_to: (data.task.assignees || []).map((a: any) => String(a.user_id)), category_id: data.task.category_id || '', drive_link: data.task.drive_link || '', drive_link_raw: data.task.drive_link_raw || '', approval_link: data.task.approval_link || '', approval_files: files, is_carrossel: files.length > 1, approval_text: data.task.approval_text || '', publish_date: data.task.publish_date || '', publish_objective: data.task.publish_objective || '', meeting_datetime: (data.task as any).meeting_datetime || '', recording_datetime: (data.task as any).recording_datetime || '', client_id: data.task.client_id || '' })
     setTimeEntries(data.timeEntries || []); setTotalTime(data.totalTimeSeconds || 0)
+    setChecklist((data as any).checklist || [])
     if (data.activeTimer) { setActiveTimerEntry(data.activeTimer); setTimerRunning(true) } else { setActiveTimerEntry(null); setTimerRunning(false) }
   }, [id])
+
+  const handleAddChecklistItem = async () => {
+    if (!task || !newChecklistText.trim()) return
+    try {
+      const item = await addChecklistItem(task.id, newChecklistText.trim())
+      setChecklist(prev => [...prev, item])
+      setNewChecklistText('')
+    } catch (err: any) { toast(err.message || 'Erro', 'error') }
+  }
+  const handleToggleChecklistItem = async (item: ChecklistItem) => {
+    try {
+      const updated = await updateChecklistItem(item.id, { done: !item.done })
+      setChecklist(prev => prev.map(i => i.id === item.id ? updated : i))
+    } catch (err: any) { toast(err.message || 'Erro', 'error') }
+  }
+  const handleDeleteChecklistItem = async (item: ChecklistItem) => {
+    try {
+      await deleteChecklistItem(item.id)
+      setChecklist(prev => prev.filter(i => i.id !== item.id))
+    } catch (err: any) { toast(err.message || 'Erro', 'error') }
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -758,6 +782,63 @@ export default function TaskDetail() {
             )}
           </div>
 
+          {/* Checklist — bloqueia conclusao se tem item pendente. So aparece se tem items OU se nao eh mae (mae nao precisa) */}
+          {!((task as any).task_type === 'mae' || (task as any).task_type === 'mae_editorial') && (
+            <div className="card" style={{ marginBottom: 16, borderLeft: '3px solid #5DADE2' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#5DADE2', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <CheckCircle size={12} /> Checklist ({checklist.filter(i => i.done).length}/{checklist.length})
+                </div>
+                {checklist.length > 0 && checklist.every(i => i.done) && (
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: 'rgba(52,199,89,0.15)', color: '#34C759', fontWeight: 700, letterSpacing: '.04em', border: '1px solid rgba(52,199,89,0.3)' }}>✓ Tudo pronto</span>
+                )}
+                {checklist.length > 0 && checklist.some(i => !i.done) && (
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: 'rgba(255,179,0,0.12)', color: '#FFB300', fontWeight: 700, letterSpacing: '.04em', border: '1px solid rgba(255,179,0,0.3)' }}>bloqueia conclusao</span>
+                )}
+              </div>
+              {checklist.length === 0 && !canEdit && (
+                <div style={{ padding: '10px 12px', fontSize: 12, color: '#9B96B0', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: 6 }}>
+                  Sem checklist nesta tarefa.
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {checklist.map(item => (
+                  <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, background: item.done ? 'rgba(52,199,89,0.05)' : 'rgba(255,255,255,0.02)', border: `1px solid ${item.done ? 'rgba(52,199,89,0.15)' : 'rgba(255,255,255,0.05)'}`, transition: 'background 0.15s' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!item.done}
+                      onChange={() => handleToggleChecklistItem(item)}
+                      disabled={!canEdit}
+                      style={{ width: 16, height: 16, accentColor: '#34C759', cursor: canEdit ? 'pointer' : 'default', flexShrink: 0 }}
+                    />
+                    <span style={{ flex: 1, fontSize: 13, color: item.done ? '#6B6580' : '#F0EDF5', textDecoration: item.done ? 'line-through' : 'none', minWidth: 0, wordBreak: 'break-word' }}>
+                      {item.text}
+                    </span>
+                    {canEdit && (
+                      <button onClick={() => handleDeleteChecklistItem(item)} className="btn btn-secondary btn-sm btn-icon" title="Remover" style={{ padding: '4px 6px', fontSize: 10, opacity: 0.6 }}>
+                        <X size={11} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {canEdit && (
+                <div style={{ display: 'flex', gap: 6, marginTop: checklist.length > 0 ? 10 : 0 }}>
+                  <input
+                    className="input"
+                    placeholder="Adicionar item ao checklist e pressionar Enter"
+                    value={newChecklistText}
+                    onChange={e => setNewChecklistText(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddChecklistItem() } }}
+                    style={{ flex: 1, fontSize: 12 }}
+                  />
+                  <button className="btn btn-secondary btn-sm" onClick={handleAddChecklistItem} disabled={!newChecklistText.trim()}>
+                    <Plus size={12} /> Adicionar
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {/* Subtarefas movidas pra aba "Subtarefas" no tab bar abaixo — vide activeTab === "subtasks" */}
         </div>
 

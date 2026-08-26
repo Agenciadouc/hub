@@ -124,6 +124,11 @@ export const addSubtask = (parentId: number, data: { title: string; description?
 export const convertTaskToMae = (id: number) => apiFetch<{ task: Task }>(`/api/tasks/${id}/convert-to-mae`, { method: 'POST' }).then(d => d.task)
 export const saveTaskAsTemplate = (id: number, name?: string) => apiFetch<{ template: any; subtasks_copied: number }>(`/api/tasks/${id}/save-as-template`, { method: 'POST', body: JSON.stringify(name ? { name } : {}) })
 
+export interface ChecklistItem { id: number; position: number; text: string; done: number; done_at: string | null }
+export const addChecklistItem = (taskId: number, text: string) => apiFetch<{ item: ChecklistItem }>(`/api/tasks/${taskId}/checklist`, { method: 'POST', body: JSON.stringify({ text }) }).then(d => d.item)
+export const updateChecklistItem = (itemId: number, data: { text?: string; done?: boolean; position?: number }) => apiFetch<{ item: ChecklistItem }>(`/api/tasks/checklist/${itemId}`, { method: 'PUT', body: JSON.stringify(data) }).then(d => d.item)
+export const deleteChecklistItem = (itemId: number) => apiFetch(`/api/tasks/checklist/${itemId}`, { method: 'DELETE' })
+
 // ---------- Task Templates (recorrencia) ----------
 export interface TaskTemplateSubtask {
   id?: number
