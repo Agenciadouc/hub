@@ -573,17 +573,7 @@ export default function TaskDetail() {
           <div className="card" style={{ marginBottom: 16 }}>
             {/* Edit toggle */}
             {canEdit && !editing && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8, gap: 6, flexWrap: 'wrap' }}>
-                {(!task.task_type || task.task_type === 'normal') && !(task as any).parent_task_id && (
-                  <button className="btn btn-secondary btn-sm" onClick={handleConvertToMae} title="Converte esta tarefa em mae — permite adicionar subtarefas" style={{ color: '#FFB300', borderColor: 'rgba(255,179,0,0.35)' }}>
-                    <Layers size={12} /> Tornar mae
-                  </button>
-                )}
-                {!(task as any).parent_task_id && (
-                  <button className="btn btn-secondary btn-sm" onClick={handleSaveAsTemplate} title="Salva esta tarefa como modelo — reutilizavel em novas tarefas" style={{ color: '#7ee787', borderColor: 'rgba(126,231,135,0.35)' }}>
-                    <FileText size={12} /> Salvar como modelo
-                  </button>
-                )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
                 <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}><Edit3 size={12} /> Editar</button>
               </div>
             )}
@@ -667,9 +657,23 @@ export default function TaskDetail() {
                 <div style={{ marginTop: 12, padding: '10px 14px', background: 'rgba(245,166,35,0.05)', border: '1px dashed rgba(245,166,35,0.20)', borderRadius: 8, fontSize: 11, color: '#A8A3B8' }}>
                   <strong style={{ color: '#F5A623' }}>Conteudo pra aprovacao:</strong> voce preenche na hora de mandar pra "Aguardando Cliente" (link, legenda, data e objetivo aparecem em popup na transicao).
                 </div>
-                <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
-                  <button className="btn btn-primary btn-sm" onClick={handleSaveEdit}><Save size={12} /> Salvar</button>
-                  <button className="btn btn-secondary btn-sm" onClick={() => setEditing(false)}><X size={12} /> Cancelar</button>
+                <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {(!task.task_type || task.task_type === 'normal') && !(task as any).parent_task_id && (
+                      <button className="btn btn-secondary btn-sm" onClick={handleConvertToMae} title="Converte esta tarefa em mae — permite adicionar subtarefas" style={{ color: '#FFB300', borderColor: 'rgba(255,179,0,0.35)' }}>
+                        <Layers size={12} /> Tornar mae
+                      </button>
+                    )}
+                    {!(task as any).parent_task_id && (
+                      <button className="btn btn-secondary btn-sm" onClick={handleSaveAsTemplate} title="Salva esta tarefa como modelo — reutilizavel em novas tarefas" style={{ color: '#7ee787', borderColor: 'rgba(126,231,135,0.35)' }}>
+                        <FileText size={12} /> Salvar como modelo
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setEditing(false)}><X size={12} /> Cancelar</button>
+                    <button className="btn btn-primary btn-sm" onClick={handleSaveEdit}><Save size={12} /> Salvar</button>
+                  </div>
                 </div>
               </>
             ) : (
