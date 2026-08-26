@@ -21,7 +21,7 @@ export default function TaskDetail() {
   const [isInternal, setIsInternal] = useState(true)
   const [rejectReason, setRejectReason] = useState('')
   const [showReject, setShowReject] = useState(false)
-  const [activeTab, setActiveTab] = useState<'comments' | 'history' | 'attachments' | 'time'>('comments')
+  const [activeTab, setActiveTab] = useState<'subtasks' | 'comments' | 'history' | 'attachments' | 'time'>('comments')
   // Expansao inline das irmas no card "Tarefa-Mae" (subtaskId -> aberta/fechada)
   const [expandedSiblings, setExpandedSiblings] = useState<Set<number>>(new Set())
   const [parentInfoOpen, setParentInfoOpen] = useState(true)  // secao "detalhes da mae" comeca aberta
@@ -84,6 +84,16 @@ export default function TaskDetail() {
   }, [loadTask, isDono])
   useSSE('task:stage_changed', useCallback((data: any) => { if (data.id === parseInt(id || '0')) loadTask() }, [id, loadTask]))
   useSSE('task:comment', useCallback((data: any) => { if (data.taskId === parseInt(id || '0')) loadTask() }, [id, loadTask]))
+
+  // Sempre que troca de tarefa: se eh mae, abre na aba Subtarefas por default; senao, Comentarios
+  const currentTaskIdRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!task) return
+    if (currentTaskIdRef.current === task.id) return
+    currentTaskIdRef.current = task.id
+    const isMae = (task as any).task_type === 'mae' || (task as any).task_type === 'mae_editorial'
+    setActiveTab(isMae ? 'subtasks' : 'comments')
+  }, [task])
 
   const [showTimerCheck, setShowTimerCheck] = useState(false)
   const lastCheckRef = useRef(0)
@@ -727,97 +737,7 @@ export default function TaskDetail() {
             )}
           </div>
 
-          {/* Subtasks (when viewing a mother task) */}
-          {(((task as any).subtasks?.length > 0) || (task as any).task_type === 'mae' || (task as any).task_type === 'mae_editorial') && (
-            <div className="card" style={{ marginBottom: 16, borderLeft: '3px solid #FFB300' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#FFB300', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Layers size={12} /> Subtarefas ({((task as any).subtasks || []).filter((s: any) => s.stage === 'concluido').length}/{((task as any).subtasks || []).length})
-                </div>
-                {!isCliente && (
-                  <button className="btn btn-secondary btn-sm" onClick={() => setShowNewSub(true)} style={{ padding: '4px 10px', fontSize: 11 }}>
-                    <Plus size={11} /> Subtarefa
-                  </button>
-                )}
-              </div>
-              {((task as any).subtasks || []).length === 0 && (
-                <div style={{ padding: '12px 14px', fontSize: 12, color: '#9B96B0', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
-                  Sem subtarefas ainda. Clica em "+ Subtarefa" pra adicionar a primeira.
-                </div>
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {((task as any).subtasks || []).map((sub: any) => {
-                  const isOverdueSub = sub.due_date && sub.due_date.slice(0, 10) < (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}` })() && sub.stage !== 'concluido' && sub.stage !== 'rejeitado'
-                  const isEditing = editingSubId === sub.id
-                  return (
-                    <div key={sub.id}
-                      style={{ padding: '12px 14px', borderRadius: 8, background: isEditing ? 'rgba(255,179,0,0.06)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isEditing ? 'rgba(255,179,0,0.35)' : (sub.stage === 'concluido' ? 'rgba(52,199,89,0.2)' : 'rgba(255,255,255,0.06)')}`, borderLeft: `3px solid ${sub.stage_color || '#6B6580'}`, transition: 'background 0.15s' }}>
-                      {isEditing ? (
-                        <div onClick={e => e.stopPropagation()}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                            <span style={{ width: 22, height: 22, borderRadius: '50%', background: sub.stage_color || '#6B6580', color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{sub.subtask_position}</span>
-                            <input className="input" value={editingSubData.title || ''} onChange={e => setEditingSubData((p: any) => ({ ...p, title: e.target.value }))} placeholder="Titulo" style={{ flex: 1, fontSize: 13, fontWeight: 700 }} autoFocus />
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 8 }}>
-                            <input className="input" type="date" value={editingSubData.due_date || ''} onChange={e => setEditingSubData((p: any) => ({ ...p, due_date: e.target.value }))} style={{ fontSize: 12 }} />
-                            <select className="select" value={editingSubData.priority || 'normal'} onChange={e => setEditingSubData((p: any) => ({ ...p, priority: e.target.value }))} style={{ fontSize: 12 }}>
-                              <option value="low">Baixa</option><option value="normal">Normal</option><option value="high">Alta</option><option value="urgent">Urgente</option>
-                            </select>
-                            <select className="select" value={editingSubData.department_id || ''} onChange={e => setEditingSubData((p: any) => ({ ...p, department_id: e.target.value }))} style={{ fontSize: 12 }}>
-                              <option value="">Sem depto</option>
-                              {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                            </select>
-                          </div>
-                          <div style={{ marginBottom: 8 }}>
-                            <AssigneesMultiSelect users={users} selected={editingSubData.assigned_to || []} onChange={arr => setEditingSubData((p: any) => ({ ...p, assigned_to: arr }))} />
-                          </div>
-                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                            <button className="btn btn-secondary btn-sm" onClick={cancelEditSub} disabled={savingSubInline}><X size={11} /> Cancelar</button>
-                            <button className="btn btn-primary btn-sm" onClick={saveEditSub} disabled={savingSubInline}>{savingSubInline ? 'Salvando...' : <><Save size={11} /> Salvar</>}</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div onClick={() => navigate(`/tasks/${sub.id}`)} style={{ cursor: 'pointer' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                              <span style={{ width: 22, height: 22, borderRadius: '50%', background: sub.stage_color || '#6B6580', color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{sub.subtask_position}</span>
-                              <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-heading)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {sub.title.replace(' - ' + task.title, '').replace(task.title + ' - ', '')}
-                              </span>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                              <span className="stage-badge" style={{ background: `${sub.stage_color}20`, color: sub.stage_color }}>{sub.stage_name}</span>
-                              {canEdit && (
-                                <button className="btn btn-secondary btn-sm" onClick={e => { e.stopPropagation(); startEditSub(sub) }} title="Editar rapido (sem sair)" style={{ padding: '4px 7px', fontSize: 10 }}>
-                                  <Edit3 size={10} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#6B6580', flexWrap: 'wrap' }}>
-                            {sub.department_name && (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: sub.department_color }} />
-                                {sub.department_name}
-                              </span>
-                            )}
-                            {sub.assigned_name && <span><User size={10} /> {sub.assigned_name}</span>}
-                            {sub.due_date && (
-                              <span style={{ color: isOverdueSub ? '#FF6B6B' : '#6B6580', fontWeight: isOverdueSub ? 700 : 400, display: 'flex', alignItems: 'center', gap: 3 }}>
-                                <Clock size={10} /> {sub.due_date.slice(0, 10)}{isOverdueSub ? ' (atrasada)' : ''}
-                              </span>
-                            )}
-                            {sub.comment_count > 0 && <span><MessageCircle size={10} /> {sub.comment_count}</span>}
-                            {sub.total_time_seconds > 0 && <span style={{ color: '#FFB300' }}><Clock size={10} /> {formatTime(sub.total_time_seconds)}</span>}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+          {/* Subtarefas movidas pra aba "Subtarefas" no tab bar abaixo — vide activeTab === "subtasks" */}
         </div>
 
         {/* Right column — different for client vs team */}
@@ -919,11 +839,107 @@ export default function TaskDetail() {
           /* TEAM VIEW: Full tabs */
           <>
           <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
+            {((task as any).task_type === 'mae' || (task as any).task_type === 'mae_editorial') && (
+              <button className={`btn btn-sm ${activeTab === 'subtasks' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('subtasks')}>
+                <Layers size={12} /> Subtarefas ({((task as any).subtasks || []).filter((s: any) => s.stage === 'concluido').length}/{((task as any).subtasks || []).length})
+              </button>
+            )}
             <button className={`btn btn-sm ${activeTab === 'comments' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('comments')}><MessageCircle size={12} /> Comentarios ({comments.length})</button>
             <button className={`btn btn-sm ${activeTab === 'history' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('history')}><GitBranch size={12} /> Historico</button>
             <button className={`btn btn-sm ${activeTab === 'time' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('time')}><Clock size={12} /> Tempo ({formatTime(totalTime)})</button>
             <button className={`btn btn-sm ${activeTab === 'attachments' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('attachments')}><Paperclip size={12} /> Anexos ({attachments.length})</button>
           </div>
+
+          {activeTab === 'subtasks' && ((task as any).task_type === 'mae' || (task as any).task_type === 'mae_editorial') && (
+            <div className="card" style={{ minHeight: 350, borderLeft: '3px solid #FFB300' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#FFB300', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Layers size={12} /> Subtarefas ({((task as any).subtasks || []).filter((s: any) => s.stage === 'concluido').length}/{((task as any).subtasks || []).length})
+                </div>
+                {!isCliente && (
+                  <button className="btn btn-secondary btn-sm" onClick={() => setShowNewSub(true)} style={{ padding: '4px 10px', fontSize: 11 }}>
+                    <Plus size={11} /> Subtarefa
+                  </button>
+                )}
+              </div>
+              {((task as any).subtasks || []).length === 0 && (
+                <div style={{ padding: '12px 14px', fontSize: 12, color: '#9B96B0', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
+                  Sem subtarefas ainda. Clica em "+ Subtarefa" pra adicionar a primeira.
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {((task as any).subtasks || []).map((sub: any) => {
+                  const isOverdueSub = sub.due_date && sub.due_date.slice(0, 10) < (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}` })() && sub.stage !== 'concluido' && sub.stage !== 'rejeitado'
+                  const isEditing = editingSubId === sub.id
+                  return (
+                    <div key={sub.id}
+                      style={{ padding: '12px 14px', borderRadius: 8, background: isEditing ? 'rgba(255,179,0,0.06)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isEditing ? 'rgba(255,179,0,0.35)' : (sub.stage === 'concluido' ? 'rgba(52,199,89,0.2)' : 'rgba(255,255,255,0.06)')}`, borderLeft: `3px solid ${sub.stage_color || '#6B6580'}`, transition: 'background 0.15s' }}>
+                      {isEditing ? (
+                        <div onClick={e => e.stopPropagation()}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                            <span style={{ width: 22, height: 22, borderRadius: '50%', background: sub.stage_color || '#6B6580', color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{sub.subtask_position}</span>
+                            <input className="input" value={editingSubData.title || ''} onChange={e => setEditingSubData((p: any) => ({ ...p, title: e.target.value }))} placeholder="Titulo" style={{ flex: 1, fontSize: 13, fontWeight: 700 }} autoFocus />
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 8 }}>
+                            <input className="input" type="date" value={editingSubData.due_date || ''} onChange={e => setEditingSubData((p: any) => ({ ...p, due_date: e.target.value }))} style={{ fontSize: 12 }} />
+                            <select className="select" value={editingSubData.priority || 'normal'} onChange={e => setEditingSubData((p: any) => ({ ...p, priority: e.target.value }))} style={{ fontSize: 12 }}>
+                              <option value="low">Baixa</option><option value="normal">Normal</option><option value="high">Alta</option><option value="urgent">Urgente</option>
+                            </select>
+                            <select className="select" value={editingSubData.department_id || ''} onChange={e => setEditingSubData((p: any) => ({ ...p, department_id: e.target.value }))} style={{ fontSize: 12 }}>
+                              <option value="">Sem depto</option>
+                              {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                            </select>
+                          </div>
+                          <div style={{ marginBottom: 8 }}>
+                            <AssigneesMultiSelect users={users} selected={editingSubData.assigned_to || []} onChange={arr => setEditingSubData((p: any) => ({ ...p, assigned_to: arr }))} />
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button className="btn btn-secondary btn-sm" onClick={cancelEditSub} disabled={savingSubInline}><X size={11} /> Cancelar</button>
+                            <button className="btn btn-primary btn-sm" onClick={saveEditSub} disabled={savingSubInline}>{savingSubInline ? 'Salvando...' : <><Save size={11} /> Salvar</>}</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div onClick={() => navigate(`/tasks/${sub.id}`)} style={{ cursor: 'pointer' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                              <span style={{ width: 22, height: 22, borderRadius: '50%', background: sub.stage_color || '#6B6580', color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{sub.subtask_position}</span>
+                              <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-heading)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {sub.title.replace(' - ' + task.title, '').replace(task.title + ' - ', '')}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                              <span className="stage-badge" style={{ background: `${sub.stage_color}20`, color: sub.stage_color }}>{sub.stage_name}</span>
+                              {canEdit && (
+                                <button className="btn btn-secondary btn-sm" onClick={e => { e.stopPropagation(); startEditSub(sub) }} title="Editar rapido (sem sair)" style={{ padding: '4px 7px', fontSize: 10 }}>
+                                  <Edit3 size={10} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: '#6B6580', flexWrap: 'wrap' }}>
+                            {sub.department_name && (
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: sub.department_color }} />
+                                {sub.department_name}
+                              </span>
+                            )}
+                            {sub.assigned_name && <span><User size={10} /> {sub.assigned_name}</span>}
+                            {sub.due_date && (
+                              <span style={{ color: isOverdueSub ? '#FF6B6B' : '#6B6580', fontWeight: isOverdueSub ? 700 : 400, display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <Clock size={10} /> {sub.due_date.slice(0, 10)}{isOverdueSub ? ' (atrasada)' : ''}
+                              </span>
+                            )}
+                            {sub.comment_count > 0 && <span><MessageCircle size={10} /> {sub.comment_count}</span>}
+                            {sub.total_time_seconds > 0 && <span style={{ color: '#FFB300' }}><Clock size={10} /> {formatTime(sub.total_time_seconds)}</span>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {activeTab === 'comments' && (
             <div className="card" style={{ minHeight: 350 }}>
