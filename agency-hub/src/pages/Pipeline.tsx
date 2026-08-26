@@ -80,6 +80,8 @@ export default function Pipeline() {
   const [newTaskIsCarrossel, setNewTaskIsCarrossel] = useState(false)
   const [newTaskFiles, setNewTaskFiles] = useState<string[]>([''])
   const [newTaskChecklist, setNewTaskChecklist] = useState<string[]>([])
+  const [newTaskShowApproval, setNewTaskShowApproval] = useState(false)
+  const [newMaeShowApproval, setNewMaeShowApproval] = useState(false)
   const isDono = user?.role === 'dono'
   const isFunc = user?.role === 'funcionario' || user?.role === 'gerente'
 
@@ -109,7 +111,8 @@ export default function Pipeline() {
     if ((stageSlug === 'aprovacao_interna' || stageSlug === 'aguardando_cliente') && !task.approval_link) {
       // Abre a tarefa e ja dispara o popup de aprovacao (via ?openApproval=stage)
       setDraggedTask(null)
-      navigate(`/tasks/${task.id}?openApproval=${stageSlug}`)
+      toast('Abra a tarefa e preencha o "Conteudo pra Aprovacao" (dentro de Editar) antes de mover pra aprovacao.', 'error')
+      navigate(`/tasks/${task.id}`)
       return
     }
     setTasks(prev => prev.map(t => t.id === draggedTask ? { ...t, stage: stageSlug } : t))
@@ -129,7 +132,7 @@ export default function Pipeline() {
         try { await addChecklistItem(created.id, text.trim()) } catch (e) { console.error('checklist:', e) }
       }
       setShowNew(false); setNewTask({ title: '', description: '', client_id: '', category_id: '', department_id: '', assigned_to: [], due_date: today, priority: 'normal', drive_link_raw: '', drive_link: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '', recording_date: '', recording_time: '' })
-      setNewTaskIsCarrossel(false); setNewTaskFiles(['']); setNewTaskChecklist([])
+      setNewTaskIsCarrossel(false); setNewTaskFiles(['']); setNewTaskChecklist([]); setNewTaskShowApproval(false)
       loadData()
       toast(`Tarefa criada${validItems.length > 0 ? ` com ${validItems.length} item(s) no checklist` : ''}`)
     } catch (err: any) { toast(err.message || 'Erro ao criar tarefa', 'error') }
@@ -141,6 +144,7 @@ export default function Pipeline() {
     setSaving(true)
     try {
       const validSubs = newMaeSubs.filter(s => s.title && s.title.trim())
+      const approval_files = newMaeIsCarrossel ? newMaeFiles.filter(s => s && s.trim()) : (newMae.approval_link ? [newMae.approval_link] : [])
       const created = await createMaeTask({
         client_id: +newMae.client_id,
         title: newMae.title,
@@ -152,6 +156,10 @@ export default function Pipeline() {
         assigned_to: newMae.assigned_to.map(Number),
         drive_link: newMae.drive_link || undefined,
         drive_link_raw: newMae.drive_link_raw || undefined,
+        approval_files: approval_files.length > 0 ? approval_files : undefined,
+        approval_text: newMae.approval_text || undefined,
+        publish_date: newMae.publish_date || undefined,
+        publish_objective: newMae.publish_objective || undefined,
         sequential_subtasks: newMae.sequential_subtasks,
       })
       let subsCreated = 0
@@ -183,7 +191,7 @@ export default function Pipeline() {
       }
       setShowNewMae(false)
       setNewMae({ title: '', client_id: '', description: '', due_date: today, category_id: '', department_id: '', priority: 'normal', assigned_to: [], drive_link: '', drive_link_raw: '', approval_link: '', approval_text: '', publish_date: '', publish_objective: '', sequential_subtasks: false })
-      setNewMaeIsCarrossel(false); setNewMaeFiles(['']); setNewMaeSubs([]); setNewMaeSaveAsTemplate(false)
+      setNewMaeIsCarrossel(false); setNewMaeFiles(['']); setNewMaeSubs([]); setNewMaeSaveAsTemplate(false); setNewMaeShowApproval(false)
       loadData()
       const parts: string[] = ['Tarefa Mae criada']
       if (subsCreated > 0) parts.push(`${subsCreated} subtarefa${subsCreated > 1 ? 's' : ''}`)
@@ -218,7 +226,8 @@ export default function Pipeline() {
     const task = tasks.find(t => t.id === taskId)
     if ((stageSlug === 'aprovacao_interna' || stageSlug === 'aguardando_cliente') && task && !task.approval_link) {
       setMoveTaskId(null)
-      navigate(`/tasks/${task.id}?openApproval=${stageSlug}`)
+      toast('Abra a tarefa e preencha o "Conteudo pra Aprovacao" (dentro de Editar) antes de mover pra aprovacao.', 'error')
+      navigate(`/tasks/${task.id}`)
       return
     }
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, stage: stageSlug } : t))
@@ -463,7 +472,56 @@ export default function Pipeline() {
             <div className="form-group"><label>Link Drive (Arquivo Bruto)</label><input className="input" value={newTask.drive_link_raw} onChange={e => setNewTask(p => ({ ...p, drive_link_raw: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
             <div className="form-group"><label>Link Drive (Arquivo Pronto)</label><input className="input" value={newTask.drive_link} onChange={e => setNewTask(p => ({ ...p, drive_link: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
           </div>
-          {/* Conteudo pra aprovacao — pedido em popup quando mover a tarefa pra 'Aguardando Cliente' */}
+          {/* Conteudo pra aprovacao — accordion (colapsado por default) */}
+          <div style={{ marginTop: 8, padding: '10px 14px', background: 'rgba(245,166,35,0.04)', border: '1px solid rgba(245,166,35,0.12)', borderRadius: 10 }}>
+            <button
+              type="button"
+              onClick={() => setNewTaskShowApproval(v => !v)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: '#F5A623', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 14 }}>{newTaskShowApproval ? '▼' : '▶'}</span>
+                Conteudo pra Aprovacao (opcional)
+              </span>
+              <span style={{ fontSize: 10, color: '#A8A3B8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+                {newTaskShowApproval ? 'recolher' : 'expandir'}
+              </span>
+            </button>
+            {newTaskShowApproval && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 10 }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#A8A3B8', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={newTaskIsCarrossel} onChange={e => {
+                      const checked = e.target.checked
+                      if (checked) { setNewTaskIsCarrossel(true); setNewTaskFiles(newTask.approval_link ? [newTask.approval_link] : ['']) }
+                      else { setNewTaskIsCarrossel(false); setNewTask(p => ({ ...p, approval_link: newTaskFiles[0] || '' })) }
+                    }} style={{ accentColor: '#FFB300' }} />
+                    Carrossel (varios arquivos)
+                  </label>
+                </div>
+                {newTaskIsCarrossel ? (
+                  <div className="form-group">
+                    <label>Arquivos do carrossel</label>
+                    {newTaskFiles.map((url, idx) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                        <span style={{ minWidth: 56, fontSize: 11, color: '#6B6580', fontWeight: 700 }}>Slide {idx + 1}</span>
+                        <input className="input" value={url} placeholder="Link do Drive (publico)" style={{ flex: 1 }} onChange={e => setNewTaskFiles(arr => arr.map((x, i) => i === idx ? e.target.value : x))} />
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewTaskFiles(arr => arr.filter((_, i) => i !== idx))} title="Remover" style={{ padding: '6px 10px' }}><X size={12} /></button>
+                      </div>
+                    ))}
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewTaskFiles(arr => [...arr, ''])} style={{ marginTop: 4 }}><Plus size={12} /> Adicionar slide</button>
+                  </div>
+                ) : (
+                  <div className="form-group"><label>Link do arquivo finalizado</label><input className="input" value={newTask.approval_link} onChange={e => setNewTask(p => ({ ...p, approval_link: e.target.value }))} placeholder="Link do Drive — compartilhamento: qualquer pessoa com o link" /></div>
+                )}
+                <div className="form-group"><label>Texto / Legenda</label><textarea className="input" rows={3} value={newTask.approval_text} onChange={e => setNewTask(p => ({ ...p, approval_text: e.target.value }))} placeholder="Legenda do post, texto da publicacao..." /></div>
+                <div className="form-row">
+                  <div className="form-group"><label>Data da Publicacao</label><input className="input" type="date" value={newTask.publish_date} onChange={e => setNewTask(p => ({ ...p, publish_date: e.target.value }))} /></div>
+                  <div className="form-group"><label>Objetivo da Publicacao</label><input className="input" value={newTask.publish_objective} onChange={e => setNewTask(p => ({ ...p, publish_objective: e.target.value }))} placeholder="Ex: Gerar leads..." /></div>
+                </div>
+              </div>
+            )}
+          </div>
           {/* Show recording date/time fields when dept is Captacao */}
           {(() => {
             const selDept = departments.find(d => String(d.id) === newTask.department_id)
@@ -592,7 +650,56 @@ export default function Pipeline() {
             <div className="form-group"><label>Link Drive (Arquivo Bruto)</label><input className="input" value={newMae.drive_link_raw} onChange={e => setNewMae(p => ({ ...p, drive_link_raw: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
             <div className="form-group"><label>Link Drive (Arquivo Pronto)</label><input className="input" value={newMae.drive_link} onChange={e => setNewMae(p => ({ ...p, drive_link: e.target.value }))} placeholder="https://drive.google.com/..." /></div>
           </div>
-          {/* Conteudo pra aprovacao — pedido em popup quando mover a tarefa pra 'Aguardando Cliente' */}
+          {/* Conteudo pra aprovacao — accordion (colapsado por default) */}
+          <div style={{ marginTop: 8, padding: '10px 14px', background: 'rgba(245,166,35,0.04)', border: '1px solid rgba(245,166,35,0.12)', borderRadius: 10 }}>
+            <button
+              type="button"
+              onClick={() => setNewMaeShowApproval(v => !v)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', color: '#F5A623', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 14 }}>{newMaeShowApproval ? '▼' : '▶'}</span>
+                Conteudo pra Aprovacao (opcional)
+              </span>
+              <span style={{ fontSize: 10, color: '#A8A3B8', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+                {newMaeShowApproval ? 'recolher' : 'expandir'}
+              </span>
+            </button>
+            {newMaeShowApproval && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 10 }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#A8A3B8', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={newMaeIsCarrossel} onChange={e => {
+                      const checked = e.target.checked
+                      if (checked) { setNewMaeIsCarrossel(true); setNewMaeFiles(newMae.approval_link ? [newMae.approval_link] : ['']) }
+                      else { setNewMaeIsCarrossel(false); setNewMae(p => ({ ...p, approval_link: newMaeFiles[0] || '' })) }
+                    }} style={{ accentColor: '#FFB300' }} />
+                    Carrossel (varios arquivos)
+                  </label>
+                </div>
+                {newMaeIsCarrossel ? (
+                  <div className="form-group">
+                    <label>Arquivos do carrossel</label>
+                    {newMaeFiles.map((url, idx) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                        <span style={{ minWidth: 56, fontSize: 11, color: '#6B6580', fontWeight: 700 }}>Slide {idx + 1}</span>
+                        <input className="input" value={url} placeholder="Link do Drive (publico)" style={{ flex: 1 }} onChange={e => setNewMaeFiles(arr => arr.map((x, i) => i === idx ? e.target.value : x))} />
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewMaeFiles(arr => arr.filter((_, i) => i !== idx))} title="Remover" style={{ padding: '6px 10px' }}><X size={12} /></button>
+                      </div>
+                    ))}
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setNewMaeFiles(arr => [...arr, ''])} style={{ marginTop: 4 }}><Plus size={12} /> Adicionar slide</button>
+                  </div>
+                ) : (
+                  <div className="form-group"><label>Link do arquivo finalizado</label><input className="input" value={newMae.approval_link} onChange={e => setNewMae(p => ({ ...p, approval_link: e.target.value }))} placeholder="Link do Drive — compartilhamento: qualquer pessoa com o link" /></div>
+                )}
+                <div className="form-group"><label>Texto / Legenda</label><textarea className="input" rows={3} value={newMae.approval_text} onChange={e => setNewMae(p => ({ ...p, approval_text: e.target.value }))} placeholder="Legenda do post, texto da publicacao..." /></div>
+                <div className="form-row">
+                  <div className="form-group"><label>Data da Publicacao</label><input className="input" type="date" value={newMae.publish_date} onChange={e => setNewMae(p => ({ ...p, publish_date: e.target.value }))} /></div>
+                  <div className="form-group"><label>Objetivo da Publicacao</label><input className="input" value={newMae.publish_objective} onChange={e => setNewMae(p => ({ ...p, publish_objective: e.target.value }))} placeholder="Ex: Gerar leads..." /></div>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Subtarefas inline — cria junto com a mae */}
           <div style={{ marginTop: 14, padding: '14px 16px', background: 'rgba(255,179,0,0.04)', border: '1px solid rgba(255,179,0,0.15)', borderRadius: 10 }}>
