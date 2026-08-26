@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useSSE } from '../context/SSEContext'
 import { fetchTask, fetchClients, fetchDepartments, fetchUsers, fetchCategories, fetchStages, updateTask, moveTaskStage, addTaskComment, addTaskAttachment, deleteTaskAttachment, approveTask, rejectTask, startTimer, stopTimer, confirmRecording, addSubtask, getApprovalFiles, convertTaskToMae, saveTaskAsTemplate, type Task, type TaskComment, type TaskHistory, type TaskAttachment, type TimeEntry, type Client, type Department, type User as UserT, type TaskCategory, type PipelineStage } from '../lib/api'
@@ -93,6 +93,23 @@ export default function TaskDetail() {
     currentTaskIdRef.current = task.id
     const isMae = (task as any).task_type === 'mae' || (task as any).task_type === 'mae_editorial'
     setActiveTab(isMae ? 'subtasks' : 'comments')
+  }, [task])
+
+  // Deep link ?openApproval=aguardando_cliente|aprovacao_interna — abre o popup de aprovacao
+  // Usado quando user arrasta o card no Pipeline sem approval_link ainda preenchido
+  const [searchParams, setSearchParams] = useSearchParams()
+  const approvalTriggered = useRef(false)
+  useEffect(() => {
+    if (!task || approvalTriggered.current) return
+    const target = searchParams.get('openApproval')
+    if (target !== 'aguardando_cliente' && target !== 'aprovacao_interna') return
+    approvalTriggered.current = true
+    // Dispara handleStageMove que ja abre o popup se falta approval_link
+    handleStageMove(target)
+    // Limpa o param pra nao re-disparar em re-renders
+    searchParams.delete('openApproval')
+    setSearchParams(searchParams, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task])
 
   const [showTimerCheck, setShowTimerCheck] = useState(false)

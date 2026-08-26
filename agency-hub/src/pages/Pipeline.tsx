@@ -106,9 +106,9 @@ export default function Pipeline() {
     const task = tasks.find(t => t.id === draggedTask)
     if (!task || task.stage === stageSlug) return
     if ((stageSlug === 'aprovacao_interna' || stageSlug === 'aguardando_cliente') && !task.approval_link) {
-      toast('Abra a tarefa e clique em "Enviar pra aprovacao" pra preencher o conteudo (link, legenda, data).', 'error')
+      // Abre a tarefa e ja dispara o popup de aprovacao (via ?openApproval=stage)
       setDraggedTask(null)
-      navigate(`/tasks/${task.id}`)
+      navigate(`/tasks/${task.id}?openApproval=${stageSlug}`)
       return
     }
     setTasks(prev => prev.map(t => t.id === draggedTask ? { ...t, stage: stageSlug } : t))
@@ -212,9 +212,8 @@ export default function Pipeline() {
   const handleMobileMove = async (taskId: number, stageSlug: string) => {
     const task = tasks.find(t => t.id === taskId)
     if ((stageSlug === 'aprovacao_interna' || stageSlug === 'aguardando_cliente') && task && !task.approval_link) {
-      toast('Abra a tarefa e clique em "Enviar pra aprovacao" pra preencher o conteudo.', 'error')
       setMoveTaskId(null)
-      navigate(`/tasks/${task.id}`)
+      navigate(`/tasks/${task.id}?openApproval=${stageSlug}`)
       return
     }
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, stage: stageSlug } : t))
