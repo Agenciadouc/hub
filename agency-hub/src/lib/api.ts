@@ -102,7 +102,7 @@ export const fetchSettings = () => apiFetch<{ settings: AppSetting[] }>('/api/se
 export const updateSetting = (key: string, value: string) =>
   apiFetch(`/api/settings/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify({ value }) })
 
-export interface TaskFilters { client_id?: number; department_id?: number; stage?: string; assigned_to?: number; category_id?: number; priority?: string; search?: string; date_from?: string; date_to?: string; page?: number; limit?: number }
+export interface TaskFilters { client_id?: number; department_id?: number; stage?: string; assigned_to?: number; category_id?: number; priority?: string; search?: string; date_from?: string; date_to?: string; date_field?: string; page?: number; limit?: number }
 export const fetchTasks = (filters: TaskFilters = {}) => {
   const params = new URLSearchParams()
   Object.entries(filters).forEach(([k, v]) => { if (v !== undefined && v !== '') params.set(k, String(v)) })

@@ -35,7 +35,7 @@ function canTransition(role, fromStage, toStage) {
 
 // List tasks with filters
 router.get('/', (req, res) => {
-  const { client_id, department_id, stage, assigned_to, category_id, priority, search, date_from, date_to, page = '1', limit = '30' } = req.query
+  const { client_id, department_id, stage, assigned_to, category_id, priority, search, date_from, date_to, date_field = 'created', page = '1', limit = '30' } = req.query
   const where = ['t.is_active = 1']
   const params = []
 
@@ -72,8 +72,25 @@ router.get('/', (req, res) => {
   if (category_id) { where.push('t.category_id = ?'); params.push(category_id) }
   if (priority) { where.push('t.priority = ?'); params.push(priority) }
   if (search) { where.push("(t.title LIKE ? OR t.description LIKE ?)"); params.push(`%${search}%`, `%${search}%`) }
-  if (date_from) { where.push('t.created_at >= ?'); params.push(date_from) }
-  if (date_to) { where.push('t.created_at <= ?'); params.push(date_to + ' 23:59:59') }
+  // Filtro de data: 'created' (default) filtra por criacao,
+  // 'due' por prazo, 'completed' pela data em que a tarefa foi movida pra 'concluido' (task_history).
+  if (date_field === 'due') {
+    if (date_from) { where.push("date(t.due_date) >= date(?)"); params.push(date_from) }
+    if (date_to) { where.push("date(t.due_date) <= date(?)"); params.push(date_to) }
+  } else if (date_field === 'completed') {
+    // Tarefa aparece se qualquer transicao pra 'concluido' cair dentro do range
+    if (date_from || date_to) {
+      const conds = ["th.task_id = t.id", "th.to_stage = 'concluido'"]
+      const p2 = []
+      if (date_from) { conds.push("date(th.created_at, '-3 hours') >= date(?)"); p2.push(date_from) }
+      if (date_to) { conds.push("date(th.created_at, '-3 hours') <= date(?)"); p2.push(date_to) }
+      where.push(`EXISTS (SELECT 1 FROM task_history th WHERE ${conds.join(' AND ')})`)
+      params.push(...p2)
+    }
+  } else {
+    if (date_from) { where.push('t.created_at >= ?'); params.push(date_from) }
+    if (date_to) { where.push('t.created_at <= ?'); params.push(date_to + ' 23:59:59') }
+  }
 
   const total = db.prepare(`SELECT COUNT(*) as c FROM tasks t WHERE ${where.join(' AND ')}`).get(...params).c
   const offset = (parseInt(page) - 1) * parseInt(limit)
@@ -1172,13 +1189,27 @@ router.post('/bulk/assign', requireRole('dono', 'gerente'), (req, res) => {
 
 // CSV export
 router.get('/export', requireRole('dono', 'gerente'), (req, res) => {
-  const { client_id, stage, department_id, date_from, date_to } = req.query
+  const { client_id, stage, department_id, date_from, date_to, date_field = 'created' } = req.query
   const where = ['t.is_active = 1']; const params = []
   if (client_id) { where.push('t.client_id = ?'); params.push(client_id) }
   if (stage) { where.push('t.stage = ?'); params.push(stage) }
   if (department_id) { where.push('t.department_id = ?'); params.push(department_id) }
-  if (date_from) { where.push('t.created_at >= ?'); params.push(date_from) }
-  if (date_to) { where.push('t.created_at <= ?'); params.push(date_to + ' 23:59:59') }
+  if (date_field === 'due') {
+    if (date_from) { where.push("date(t.due_date) >= date(?)"); params.push(date_from) }
+    if (date_to) { where.push("date(t.due_date) <= date(?)"); params.push(date_to) }
+  } else if (date_field === 'completed') {
+    if (date_from || date_to) {
+      const conds = ["th.task_id = t.id", "th.to_stage = 'concluido'"]
+      const p2 = []
+      if (date_from) { conds.push("date(th.created_at, '-3 hours') >= date(?)"); p2.push(date_from) }
+      if (date_to) { conds.push("date(th.created_at, '-3 hours') <= date(?)"); p2.push(date_to) }
+      where.push(`EXISTS (SELECT 1 FROM task_history th WHERE ${conds.join(' AND ')})`)
+      params.push(...p2)
+    }
+  } else {
+    if (date_from) { where.push('t.created_at >= ?'); params.push(date_from) }
+    if (date_to) { where.push('t.created_at <= ?'); params.push(date_to + ' 23:59:59') }
+  }
 
   const tasks = db.prepare(`
     SELECT t.title, c.name as cliente, ps.name as etapa, d.name as departamento, u.name as responsavel,

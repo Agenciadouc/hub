@@ -84,6 +84,7 @@ export default function Tasks() {
   )
   const [dateFrom, setDateFrom] = useState<string>(savedState.dateFrom || '')
   const [dateTo, setDateTo] = useState<string>(savedState.dateTo || '')
+  const [dateField, setDateField] = useState<string>(savedState.dateField || 'created')
   // Sort (persistido)
   const [sortField, setSortField] = useState<string>(savedState.sortField || 'updated_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(savedState.sortDir || 'desc')
@@ -123,6 +124,7 @@ export default function Tasks() {
     if (filterAssigned) filters.assigned_to = +filterAssigned
     if (dateFrom) filters.date_from = dateFrom
     if (dateTo) filters.date_to = dateTo
+    if ((dateFrom || dateTo) && dateField && dateField !== 'created') filters.date_field = dateField
     fetchTasks(filters).then(d => {
       // Client-side sort
       const sorted = [...d.tasks].sort((a, b) => {
@@ -136,17 +138,17 @@ export default function Tasks() {
     }).finally(() => setLoading(false))
   }
 
-  useEffect(loadTasks, [search, filterClient, filterStage, filterStages.size, filterDept, filterPriority, filterAssigned, dateFrom, dateTo, page, sortField, sortDir])
+  useEffect(loadTasks, [search, filterClient, filterStage, filterStages.size, filterDept, filterPriority, filterAssigned, dateFrom, dateTo, dateField, page, sortField, sortDir])
   // Salva estado no sessionStorage sempre que qualquer filtro/sort/pagina mudar
   useEffect(() => {
     try {
       sessionStorage.setItem(SS_KEY, JSON.stringify({
         search, filterClient, filterStage, filterStages: [...filterStages],
         filterDept, filterPriority, filterAssigned,
-        dateFrom, dateTo, page, sortField, sortDir,
+        dateFrom, dateTo, dateField, page, sortField, sortDir,
       }))
     } catch {}
-  }, [search, filterClient, filterStage, filterStages, filterDept, filterPriority, filterAssigned, dateFrom, dateTo, page, sortField, sortDir])
+  }, [search, filterClient, filterStage, filterStages, filterDept, filterPriority, filterAssigned, dateFrom, dateTo, dateField, page, sortField, sortDir])
 
   // Client-side multi-stage filter
   const filteredTasks = filterStages.size > 1 ? tasks.filter(t => filterStages.has(t.stage)) : tasks
@@ -319,11 +321,16 @@ export default function Tasks() {
         {isDono && <select className="select" value={filterAssigned} onChange={e => { setFilterAssigned(e.target.value); setPage(1) }}><option value="">Todos</option>{allUsers.filter(u => u.role !== 'cliente').map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select>}
       </div>
       <div className="filter-bar" style={{ marginTop: -6 }}>
+        <select className="select" value={dateField} onChange={e => { setDateField(e.target.value); setPage(1) }} style={{ width: 150 }} title="Qual campo de data usar no filtro abaixo">
+          <option value="created">Data de criacao</option>
+          <option value="due">Prazo</option>
+          <option value="completed">Data de conclusao</option>
+        </select>
         <input className="input" type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1) }} style={{ width: 150 }} />
         <span style={{ color: '#6B6580', fontSize: 12 }}>ate</span>
         <input className="input" type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1) }} style={{ width: 150 }} />
-        {(search || filterStage || filterStages.size > 0 || filterClient || filterPriority || filterAssigned || dateFrom || dateTo) && (
-          <button className="btn btn-secondary btn-sm" onClick={() => { setSearch(''); setFilterStage(''); setFilterStages(new Set()); setFilterClient(''); setFilterPriority(''); setFilterAssigned(isFunc ? String(user?.id) : ''); setDateFrom(''); setDateTo(''); setPage(1) }}>Limpar</button>
+        {(search || filterStage || filterStages.size > 0 || filterClient || filterPriority || filterAssigned || dateFrom || dateTo || dateField !== 'created') && (
+          <button className="btn btn-secondary btn-sm" onClick={() => { setSearch(''); setFilterStage(''); setFilterStages(new Set()); setFilterClient(''); setFilterPriority(''); setFilterAssigned(isFunc ? String(user?.id) : ''); setDateFrom(''); setDateTo(''); setDateField('created'); setPage(1) }}>Limpar</button>
         )}
       </div>
 
