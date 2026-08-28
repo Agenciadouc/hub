@@ -31,7 +31,7 @@ const getKiwifyClientId = () => process.env.KIWIFY_CLIENT_ID
 const getKiwifyClientSecret = () => process.env.KIWIFY_CLIENT_SECRET
 const getKiwifyAccountId = () => process.env.KIWIFY_ACCOUNT_ID
 const META_BASE = 'https://graph.facebook.com/v21.0'
-const GADS_API = 'https://googleads.googleapis.com/v20'
+const GADS_API = 'https://googleads.googleapis.com/v22'
 const GA4_API = 'https://analyticsdata.googleapis.com/v1beta'
 
 // =====================================================================
