@@ -5,6 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, AreaChart, Area,
 } from 'recharts'
 import { Users, UserCheck, Phone, Eye, Home, Key, AlertTriangle, TrendingUp, TrendingDown, UserX, ArrowRight, MapPin, ShoppingCart } from 'lucide-react'
+import { getGuiAutocarProjection } from '../../lib/guiAutocarProjections'
 
 interface Props {
   accountId: string
@@ -163,6 +164,37 @@ function KellermannCRM({ data, days, adSpend }: { data: CRMData; days: number; a
           </div>
         </section>
       )}
+    </div>
+  )
+}
+
+// ========== GUI AUTOCAR CRM (Meta Ads apenas) ==========
+// Mostra so o funil de LEADS oriundos de Meta. Aba Google Ads tem seu proprio CRM.
+// A aba Geral agrega Meta + Google. Fonte unica em lib/guiAutocarProjections.
+function GuiAutocarCRM({ days, adSpend }: { days: number; adSpend?: number }) {
+  const proj = getGuiAutocarProjection(days, adSpend)
+  const m = proj.meta
+  const qualRate = m.leads > 0 ? ((m.qualSim / m.leads) * 100).toFixed(1) : '0'
+  const custoLead = m.leads > 0 && adSpend ? adSpend / m.leads : 10
+  const custoQualif = m.qualSim > 0 && adSpend ? adSpend / m.qualSim : 25
+
+  return (
+    <div className="crm-section">
+      <section className="dash-section">
+        <div className="section-title">CRM — Leads via Meta ({days} dias) <span style={{ fontSize: 11, fontWeight: 500, color: '#9B96B0', marginLeft: 8 }}>· estimativa · so leads atribuidos a Meta Ads</span></div>
+        <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+          <Stat label="Leads via Meta (estimativa)" value={m.leads} sub={`Ultimos ${days} dias`} icon={<Users size={16} />} color="#1877F2" />
+          <Stat label="Qualificados SIM (estimativa)" value={m.qualSim} sub={`${qualRate}% do total`} icon={<UserCheck size={16} />} color="#34C759" />
+          <Stat label="Meio Termo (estimativa)" value={m.qualMeio} sub={`${m.leads > 0 ? ((m.qualMeio / m.leads) * 100).toFixed(0) : 0}%`} icon={<Users size={16} />} color="#FFB300" />
+          <Stat label="Nao Qualificados (estimativa)" value={m.qualNao} sub={`${m.leads > 0 ? ((m.qualNao / m.leads) * 100).toFixed(0) : 0}%`} icon={<UserX size={16} />} color="#FFAA83" />
+          <Stat label="Custo por Lead Meta" value={formatBRL(custoLead)} sub={adSpend ? `R$ ${adSpend.toFixed(0)} / ${m.leads} leads` : `estimado`} icon={<TrendingDown size={16} />} color="#FFAA83" />
+          <Stat label="Custo por Lead Qualif." value={formatBRL(custoQualif)} sub={adSpend ? `R$ ${adSpend.toFixed(0)} / ${m.qualSim} qualif.` : `estimado`} icon={<UserCheck size={16} />} color="#34C759" />
+          <Stat label="Vendas via Meta (estimativa)" value={m.vendas} sub={`${m.qualSim > 0 ? ((m.vendas / m.qualSim) * 100).toFixed(0) : 0}% dos qualificados`} icon={<ShoppingCart size={16} />} color="#1877F2" />
+          <Stat label="Ticket Medio" value={formatBRL(proj.ticket)} sub="Historico ultimo trimestre" icon={<TrendingUp size={16} />} color="#5DADE2" />
+          <Stat label="Faturamento Meta (estimativa)" value={formatBRL(m.faturamento)} sub={`${m.vendas} vendas x ${formatBRL(proj.ticket)}`} icon={<TrendingUp size={16} />} color="#1877F2" />
+        </div>
+      </section>
+
     </div>
   )
 }
@@ -995,6 +1027,13 @@ export default function CRMView({ accountId, accountName, days, adSpend }: Props
       .finally(() => setLoading(false))
   }, [accountId, accountName, days])
 
+  // Gui Autocar: dados projetados (baseline 150 leads/mes, ticket R$5.9k, 89k/mes historico)
+  // Renderiza antes de loading/available pq nao depende de planilha CRM real
+  const nameLower = (accountName || '').toLowerCase()
+  if (nameLower.includes('autocar') || nameLower.includes('gui auto')) {
+    return <GuiAutocarCRM days={days} adSpend={adSpend} />
+  }
+
   if (loading) return <div className="loading-container"><div className="spinner" /><span>Carregando CRM...</span></div>
   if (!data?.available) return null
 
@@ -1052,10 +1091,10 @@ export default function CRMView({ accountId, accountName, days, adSpend }: Props
       <section className="dash-section">
         <div className="section-title">Qualificação & Custos Reais</div>
         <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-          {data.qualSim > 0 && <Stat label="Qualificados" value={data.qualSim} sub={`${data.total > 0 ? ((data.qualSim / data.total) * 100).toFixed(0) : 0}% dos leads`} icon={<UserCheck size={16} />} color="#34C759" />}
-          {data.qualNao > 0 && <Stat label="Desqualificados" value={data.qualNao} sub={`${data.total > 0 ? ((data.qualNao / data.total) * 100).toFixed(0) : 0}% sem resposta/retorno`} icon={<UserX size={16} />} color="#FF6B6B" />}
-          {data.qualMeio > 0 && <Stat label="Em Andamento" value={data.qualMeio} sub={`${data.total > 0 ? ((data.qualMeio / data.total) * 100).toFixed(0) : 0}% do total`} icon={<Users size={16} />} color="#FFAA83" />}
-          {adSpend && data.qualSim > 0 && <Stat label="CPL Real (Qualificado)" value={formatBRL(adSpend / data.qualSim)} sub={`${formatBRL(adSpend)} / ${data.qualSim} qualificados`} icon={<TrendingUp size={16} />} color="#34C759" />}
+          {(data.qualSim ?? 0) > 0 && <Stat label="Qualificados" value={data.qualSim!} sub={`${data.total > 0 ? ((data.qualSim! / data.total) * 100).toFixed(0) : 0}% dos leads`} icon={<UserCheck size={16} />} color="#34C759" />}
+          {(data.qualNao ?? 0) > 0 && <Stat label="Desqualificados" value={data.qualNao!} sub={`${data.total > 0 ? ((data.qualNao! / data.total) * 100).toFixed(0) : 0}% sem resposta/retorno`} icon={<UserX size={16} />} color="#FF6B6B" />}
+          {(data.qualMeio ?? 0) > 0 && <Stat label="Em Andamento" value={data.qualMeio!} sub={`${data.total > 0 ? ((data.qualMeio! / data.total) * 100).toFixed(0) : 0}% do total`} icon={<Users size={16} />} color="#FFAA83" />}
+          {adSpend && (data.qualSim ?? 0) > 0 && <Stat label="CPL Real (Qualificado)" value={formatBRL(adSpend / data.qualSim!)} sub={`${formatBRL(adSpend)} / ${data.qualSim} qualificados`} icon={<TrendingUp size={16} />} color="#34C759" />}
           {cplReal > 0 && <Stat label="CPL Geral (Meta→CRM)" value={formatBRL(cplReal)} sub={`${data.adsLeads} leads de Ads`} icon={<TrendingUp size={16} />} color="#FFB300" />}
           {cpVisitaReal > 0 && <Stat label="Custo por Visita" value={formatBRL(cpVisitaReal)} sub="Gasto Ads / Visitas CRM" icon={<Eye size={16} />} color="#FFAA83" />}
           {data.semCorretor > 0 && <Stat label="Sem Corretor" value={data.semCorretor} sub={`${((data.semCorretor / data.total) * 100).toFixed(0)}% nao distribuidos`} icon={<UserX size={16} />} color="#FF6B6B" alert={data.semCorretor > data.total * 0.1 ? 'Leads nao distribuidos!' : undefined} />}

@@ -23,6 +23,7 @@ import performanceRoutes, { publicRouter as performancePublicRoutes } from './ro
 import taskTemplateRoutes from './routes/task-templates.js'
 import settingsRoutes, { seedSettingsFromEnv } from './routes/settings.js'
 import configRoutes from './routes/config.js'
+import coreCompatRoutes from './routes/coreCompat.js'
 import { runDueTemplates } from './services/taskTemplates.js'
 import { authenticate } from './middleware/auth.js'
 import { addSSEClient, removeSSEClient, addSSEUserClient, removeSSEUserClient, sendToUser } from './sse.js'
@@ -49,6 +50,7 @@ app.use('/api/performance', authenticate, performanceRoutes)
 app.use('/api/task-templates', authenticate, taskTemplateRoutes)
 app.use('/api/settings', authenticate, settingsRoutes)
 app.use('/api/config', configRoutes)   // server-to-server via X-Core-Secret, NAO usa authenticate (JWT user)
+app.use('/api', authenticate, coreCompatRoutes)  // rotas espelho pros componentes vindos do Core
 
 // Active timers for current user
 app.get('/api/my-timers', authenticate, (req, res) => {

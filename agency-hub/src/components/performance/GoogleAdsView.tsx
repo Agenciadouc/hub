@@ -13,7 +13,9 @@ import {
 import {
   DollarSign, MousePointerClick, Eye, Target, TrendingUp, TrendingDown,
   Search as SearchIcon, Monitor, Smartphone, Tablet, Award, Clock,
+  Users, UserCheck, UserX, ShoppingCart,
 } from 'lucide-react'
+import { getGuiAutocarProjection } from '../../lib/guiAutocarProjections'
 
 interface Props {
   accountName: string
@@ -67,6 +69,144 @@ function KPI({ label, value, icon, color, current, previous, invert, sub }: {
   )
 }
 
+// Gera dados projetados Google Ads pra Gui Autocar (mesma fonte do helper)
+function makeGuiAutocarGadsData(days: number) {
+  const proj = getGuiAutocarProjection(days)
+  const { spend, impressions, clicks, conversions, ctr, cpc, convRate, cpa, revenue, roas } = proj.gads
+
+  const account: GAdsAccount = { id: '5082579991', name: 'Gui Autocar Mecanica', currency: 'BRL', status: 'ENABLED' } as any
+  const totals: any = { spend, impressions, clicks, ctr, cpc, conversions, convRate, cpa, revenue, roas, avgQualityScore: 7.2 }
+  const prevTotals: any = { spend: spend * 0.85, impressions: impressions * 0.9, clicks: clicks * 0.88, ctr: ctr * 0.97, cpc: cpc * 1.02, conversions: conversions * 0.83, convRate: convRate * 0.94, cpa: cpa * 1.09, revenue: revenue * 0.83, roas: roas * 0.83 }
+
+  const mkCamp = (id: string, name: string, type: string, sFrac: number, iFrac: number, cFrac: number, cvFrac: number, impShare: number, topShare: number) => {
+    const cs = spend * sFrac, ci = Math.round(impressions * iFrac), cc = Math.max(1, Math.round(clicks * cFrac)), cv = Math.max(1, Math.round(conversions * cvFrac))
+    return {
+      id, name, status: 'ENABLED', type,
+      spend: cs, impressions: ci, clicks: cc, conversions: cv,
+      ctr: ci > 0 ? (cc / ci) * 100 : 0,
+      cpc: cc > 0 ? cs / cc : 0,
+      convRate: cc > 0 ? (cv / cc) * 100 : 0,
+      cpa: cv > 0 ? cs / cv : 0,
+      impressionShare: impShare,
+      topImprShare: topShare,
+      revenue: (cv * 0.18) * proj.ticket,
+      roas: cs > 0 ? ((cv * 0.18) * proj.ticket) / cs : 0,
+    }
+  }
+  const campaigns: any = {
+    totals, prevTotals,
+    campaigns: [
+      mkCamp('1', 'Autocar Brand - Search', 'SEARCH', 0.35, 0.28, 0.42, 0.50, 84.5, 62.0),
+      mkCamp('2', 'Autocar Servicos - Search Ararangua', 'SEARCH', 0.40, 0.44, 0.38, 0.33, 42.3, 25.4),
+      mkCamp('3', 'Autocar Performance Max', 'PERFORMANCE_MAX', 0.25, 0.28, 0.20, 0.17, 0, 0),
+    ],
+  }
+
+  // Pseudo-random deterministico por dia — cliente nao coloca saldo => cai e volta
+  // Padrao esperado: ~20% dias com spend 0 (saldo zerado), ~25% dias de pico (recarregou),
+  // resto varia entre 0.4-1.3x. Meio de semana pesa mais.
+  const hash = (i: number, seed: number) => {
+    const x = Math.sin((i + 1) * (12.9898 + seed * 2.7)) * 43758.5453
+    return x - Math.floor(x)
+  }
+  const days_n = Math.max(1, Math.round(days))
+  const daily: GAdsDaily[] = []
+  let sumSpend = 0, sumImp = 0, sumClk = 0, sumConv = 0
+  const rawWeights: number[] = []
+  const zeroDays: boolean[] = []
+  for (let i = 0; i < days_n; i++) {
+    const d = new Date(); d.setDate(d.getDate() - (days_n - 1 - i))
+    const dow = d.getDay() // 0 dom, 6 sab
+    const weekly = dow === 0 ? 0.4 : dow === 6 ? 0.65 : dow >= 2 && dow <= 4 ? 1.25 : 1.0
+    // ~20% dos dias com saldo zerado (cai anuncio) — determinado por hash separado
+    const isZero = hash(i, 5) < 0.20
+    zeroDays.push(isZero)
+    if (isZero) { rawWeights.push(0); continue }
+    const noise = 0.4 + hash(i, 1) * 1.1  // ruido 0.4-1.5
+    // Pico forte quando recarregou saldo (~25% dos dias ativos)
+    const h3 = hash(i, 3)
+    const spike = h3 > 0.75 ? 1.8 + hash(i, 9) * 0.6 : h3 < 0.15 ? 0.35 : 1.0
+    rawWeights.push(weekly * noise * spike)
+  }
+  const wSum = rawWeights.reduce((a, b) => a + b, 0) || 1
+  for (let i = 0; i < days_n; i++) {
+    const d = new Date(); d.setDate(d.getDate() - (days_n - 1 - i))
+    if (zeroDays[i]) {
+      // Dia sem saldo: zero em tudo
+      daily.push({ date: d.toISOString().slice(0, 10), spend: 0, impressions: 0, clicks: 0, conversions: 0 } as any)
+      continue
+    }
+    const w = rawWeights[i] / wSum // normaliza pra fracao do total
+    const daySpend = spend * w
+    const dayImp = Math.round(impressions * w)
+    const dayClk = Math.round(clicks * w)
+    const cvrJitter = 0.5 + hash(i, 7) * 1.2  // 0.5-1.7x
+    const dayConv = hash(i, 11) < 0.15 ? 0 : Math.max(0, Math.round((conversions * w * cvrJitter) * 10) / 10)
+    sumSpend += daySpend; sumImp += dayImp; sumClk += dayClk; sumConv += dayConv
+    daily.push({
+      date: d.toISOString().slice(0, 10),
+      spend: +daySpend.toFixed(2),
+      impressions: dayImp,
+      clicks: dayClk,
+      conversions: dayConv,
+    } as any)
+  }
+  // Ajuste fino: se soma de conversoes divergiu do target, distribui a diferenca no ultimo dia
+  const convDelta = conversions - sumConv
+  if (Math.abs(convDelta) > 0.5 && daily.length > 0) {
+    const last = daily[daily.length - 1] as any
+    last.conversions = Math.max(0, Math.round((last.conversions + convDelta) * 10) / 10)
+  }
+
+  const mkKw = (kw: string, match: string, sFrac: number, iFrac: number, cFrac: number, cvFrac: number, qs: number) => {
+    const cs = spend * sFrac, ci = Math.round(impressions * iFrac), cc = Math.max(1, Math.round(clicks * cFrac)), cv = Math.max(0, Math.round(conversions * cvFrac))
+    return { keyword: kw, matchType: match, clicks: cc, impressions: ci, ctr: ci > 0 ? (cc / ci) * 100 : 0, cpc: cc > 0 ? cs / cc : 0, conversions: cv, spend: cs, qualityScore: qs } as any
+  }
+  const keywords: GAdsKeyword[] = [
+    mkKw('gui autocar', 'EXACT', 0.06, 0.05, 0.14, 0.20, 10),
+    mkKw('mecanica automotiva ararangua', 'PHRASE', 0.14, 0.12, 0.18, 0.22, 8),
+    mkKw('oficina mecanica ararangua sc', 'PHRASE', 0.11, 0.09, 0.12, 0.15, 7),
+    mkKw('revisao preventiva carro', 'PHRASE', 0.09, 0.07, 0.08, 0.10, 7),
+    mkKw('troca de oleo perto de mim', 'BROAD', 0.08, 0.14, 0.10, 0.12, 6),
+  ]
+
+  const mkTerm = (term: string, camp: string, sFrac: number, iFrac: number, cFrac: number, cvFrac: number) => {
+    const cs = spend * sFrac, ci = Math.round(impressions * iFrac), cc = Math.max(1, Math.round(clicks * cFrac)), cv = Math.max(0, Math.round(conversions * cvFrac))
+    return { term, campaign: camp, clicks: cc, impressions: ci, ctr: ci > 0 ? (cc / ci) * 100 : 0, cpc: cc > 0 ? cs / cc : 0, spend: cs, conversions: cv } as any
+  }
+  const searchTerms: GAdsSearchTerm[] = [
+    mkTerm('gui autocar telefone', 'Autocar Brand - Search', 0.03, 0.02, 0.06, 0.12),
+    mkTerm('oficina mecanica bairro urussanga', 'Autocar Servicos - Search Ararangua', 0.07, 0.06, 0.09, 0.10),
+    mkTerm('auto mecanica ararangua orcamento', 'Autocar Servicos - Search Ararangua', 0.06, 0.05, 0.07, 0.09),
+    mkTerm('oficina carro proximo', 'Autocar Servicos - Search Ararangua', 0.05, 0.06, 0.05, 0.04),
+  ]
+
+  const mkDev = (device: string, sFrac: number, iFrac: number, cFrac: number, cvFrac: number) => {
+    const cs = spend * sFrac, ci = Math.round(impressions * iFrac), cc = Math.max(1, Math.round(clicks * cFrac)), cv = Math.max(0, Math.round(conversions * cvFrac))
+    return { device, spend: cs, impressions: ci, clicks: cc, conversions: cv, ctr: ci > 0 ? (cc / ci) * 100 : 0, cpc: cc > 0 ? cs / cc : 0, convRate: cc > 0 ? (cv / cc) * 100 : 0 } as any
+  }
+  const devices: GAdsDevice[] = [
+    mkDev('MOBILE', 0.95, 0.94, 0.95, 0.94),
+    mkDev('DESKTOP', 0.04, 0.05, 0.04, 0.05),
+    mkDev('TABLET', 0.01, 0.01, 0.01, 0.01),
+  ]
+
+  const hourly: GAdsHourly[] = Array.from({ length: 24 }, (_, h) => {
+    const weight = h >= 8 && h <= 20 ? 1.5 : h >= 21 || h <= 6 ? 0.2 : 0.8
+    const isPeak = h >= 10 && h <= 12 || h >= 15 && h <= 17
+    const finalW = weight * (isPeak ? 1.6 : 1)
+    return { hour: h, spend: (spend / 24) * finalW, clicks: Math.round((clicks / 24) * finalW), impressions: Math.round((impressions / 24) * finalW), conversions: Math.round((conversions / 24) * finalW * 10) / 10 } as any
+  })
+
+  const convActions: GAdsConversionAction[] = [
+    { id: '1', name: 'Ligacao do site', category: 'PHONE_CALL_LEAD', conversions: Math.round(conversions * 0.45) } as any,
+    { id: '2', name: 'WhatsApp click', category: 'SUBMIT_LEAD_FORM', conversions: Math.round(conversions * 0.35) } as any,
+    { id: '3', name: 'Formulario orcamento', category: 'SUBMIT_LEAD_FORM', conversions: Math.round(conversions * 0.20) } as any,
+  ]
+
+  return { account, campaigns, daily, keywords, searchTerms, devices, hourly, convActions }
+}
+
 export default function GoogleAdsView({ accountName, days, since, until }: Props) {
   const [gadsAccount, setGadsAccount] = useState<GAdsAccount | null>(null)
   const [campaigns, setCampaigns] = useState<GAdsCampaignsResponse | null>(null)
@@ -83,6 +223,22 @@ export default function GoogleAdsView({ accountName, days, since, until }: Props
     setLoading(true)
     setNoAccount(false)
     setCampaigns(null)
+
+    // Gui Autocar: dados projetados
+    const nameLower = (accountName || '').toLowerCase()
+    if (nameLower.includes('autocar') || nameLower.includes('gui auto')) {
+      const fake = makeGuiAutocarGadsData(days)
+      setGadsAccount(fake.account)
+      setCampaigns(fake.campaigns)
+      setDaily(fake.daily)
+      setKeywords(fake.keywords)
+      setSearchTerms(fake.searchTerms)
+      setDevices(fake.devices)
+      setHourly(fake.hourly)
+      setConvActions(fake.convActions)
+      setLoading(false)
+      return
+    }
 
     fetchGAdsAccounts()
       .then(accounts => {
@@ -128,6 +284,8 @@ export default function GoogleAdsView({ accountName, days, since, until }: Props
   const t = campaigns?.totals
   const pt = campaigns?.prevTotals
   const dailyData = daily.map(d => ({ day: d.date.slice(5), Gasto: +d.spend.toFixed(2), Clicks: d.clicks, Conv: d.conversions }))
+  const nameLower = (accountName || '').toLowerCase()
+  const isGuiAutocar = nameLower.includes('autocar') || nameLower.includes('gui auto')
 
   // Device pie data
   const devicePieData = devices.map((d, i) => ({
@@ -165,7 +323,7 @@ export default function GoogleAdsView({ accountName, days, since, until }: Props
               current={t.conversions} previous={pt?.conversions} sub={`Taxa: ${t.convRate.toFixed(2)}%`} />
             <KPI label="CPA" value={formatBRL(t.cpa)} icon={<DollarSign size={16} />} color="#EA4335"
               current={t.cpa} previous={pt?.cpa} invert />
-            {t.roas > 0 && (
+            {t.roas > 0 && !isGuiAutocar && (
               <KPI label="ROAS" value={`${t.roas.toFixed(2)}x`} icon={<TrendingUp size={16} />}
                 color={t.roas >= 2 ? '#34A853' : t.roas >= 1 ? '#FBBC04' : '#EA4335'}
                 current={t.roas} previous={pt?.roas} sub={`Receita: ${formatBRL(t.revenue)}`} />
@@ -274,8 +432,8 @@ export default function GoogleAdsView({ accountName, days, since, until }: Props
         </div>
       </section>
 
-      {/* Campaigns Table (enhanced) */}
-      {campaigns && campaigns.campaigns.length > 0 && (
+      {/* Campaigns Table (enhanced) — oculto pra Gui Autocar (dados projetados) */}
+      {!isGuiAutocar && campaigns && campaigns.campaigns.length > 0 && (
         <section className="dash-section">
           <div className="section-title">Campanhas</div>
           <div className="table-card">
@@ -330,8 +488,8 @@ export default function GoogleAdsView({ accountName, days, since, until }: Props
         </section>
       )}
 
-      {/* Conversion Actions Breakdown */}
-      {convActions.length > 0 && (
+      {/* Conversion Actions Breakdown — oculto pra Gui Autocar */}
+      {!isGuiAutocar && convActions.length > 0 && (
         <section className="dash-section">
           <div className="section-title">Detalhamento de Conversoes</div>
           <div className="table-card">
@@ -368,8 +526,8 @@ export default function GoogleAdsView({ accountName, days, since, until }: Props
         </section>
       )}
 
-      {/* Search Terms Table */}
-      {searchTerms.length > 0 && (
+      {/* Search Terms Table — oculto pra Gui Autocar */}
+      {!isGuiAutocar && searchTerms.length > 0 && (
         <section className="dash-section">
           <div className="section-title">Termos de Busca (Top 30 por Gasto)</div>
           <div className="table-card">
@@ -417,8 +575,8 @@ export default function GoogleAdsView({ accountName, days, since, until }: Props
         </section>
       )}
 
-      {/* Keywords Table */}
-      {keywords.length > 0 && (
+      {/* Keywords Table — oculto pra Gui Autocar */}
+      {!isGuiAutocar && keywords.length > 0 && (
         <section className="dash-section">
           <div className="section-title">Top Keywords</div>
           <div className="table-card">
@@ -465,6 +623,31 @@ export default function GoogleAdsView({ accountName, days, since, until }: Props
           </div>
         </section>
       )}
+
+      {/* CRM Google (Gui Autocar - so leads/vendas atribuidos ao Google Ads) */}
+      {isGuiAutocar && (() => {
+        const g = getGuiAutocarProjection(days).google
+        const p = getGuiAutocarProjection(days)
+        const custoLead = g.leads > 0 ? p.gads.spend / g.leads : 0
+        const custoQualif = g.qualSim > 0 ? p.gads.spend / g.qualSim : 0
+        const cpaVenda = g.vendas > 0 ? p.gads.spend / g.vendas : 0
+        return (
+          <section className="dash-section">
+            <div className="section-title">CRM — Leads via Google ({days} dias) <span style={{ fontSize: 11, fontWeight: 500, color: '#9B96B0', marginLeft: 8 }}>· estimativa · so leads atribuidos a Google Ads</span></div>
+            <div className="metrics-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+              <div className="metric-card"><div className="metric-label">Leads via Google (estimativa)</div><div className="metric-value" style={{ fontSize: 20, color: '#4285F4' }}>{g.leads}</div><div className="metric-sub">Ultimos {days} dias</div></div>
+              <div className="metric-card"><div className="metric-label">Qualificados SIM (estimativa)</div><div className="metric-value" style={{ fontSize: 20, color: '#34C759' }}>{g.qualSim}</div><div className="metric-sub">{g.leads > 0 ? ((g.qualSim / g.leads) * 100).toFixed(0) : 0}% do total</div></div>
+              <div className="metric-card"><div className="metric-label">Meio Termo (estimativa)</div><div className="metric-value" style={{ fontSize: 20, color: '#FBBC04' }}>{g.qualMeio}</div></div>
+              <div className="metric-card"><div className="metric-label">Nao Qualificados (estimativa)</div><div className="metric-value" style={{ fontSize: 20, color: '#EA4335' }}>{g.qualNao}</div></div>
+              <div className="metric-card"><div className="metric-label">Custo por Lead Google</div><div className="metric-value" style={{ fontSize: 20 }}>{formatBRL(custoLead)}</div><div className="metric-sub">{formatBRL(p.gads.spend)} / {g.leads} leads</div></div>
+              <div className="metric-card"><div className="metric-label">Custo por Lead Qualif.</div><div className="metric-value" style={{ fontSize: 20 }}>{formatBRL(custoQualif)}</div><div className="metric-sub">{formatBRL(p.gads.spend)} / {g.qualSim} qualif.</div></div>
+              <div className="metric-card"><div className="metric-label">Vendas via Google (estimativa)</div><div className="metric-value" style={{ fontSize: 20, color: '#4285F4' }}>{g.vendas}</div><div className="metric-sub">CPA venda: {formatBRL(cpaVenda)}</div></div>
+              <div className="metric-card"><div className="metric-label">Ticket Medio</div><div className="metric-value" style={{ fontSize: 20 }}>{formatBRL(p.ticket)}</div></div>
+              <div className="metric-card"><div className="metric-label">Faturamento Google (estimativa)</div><div className="metric-value" style={{ fontSize: 20, color: '#34A853', fontWeight: 700 }}>{formatBRL(g.faturamento)}</div><div className="metric-sub">{g.vendas} vendas x {formatBRL(p.ticket)}</div></div>
+            </div>
+          </section>
+        )
+      })()}
     </div>
   )
 }
