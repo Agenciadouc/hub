@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useSSE } from '../context/SSEContext'
 import { fetchTask, fetchClients, fetchDepartments, fetchUsers, fetchCategories, fetchStages, updateTask, moveTaskStage, addTaskComment, addTaskAttachment, deleteTaskAttachment, approveTask, rejectTask, startTimer, stopTimer, confirmRecording, addSubtask, getApprovalFiles, convertTaskToMae, saveTaskAsTemplate, addChecklistItem, updateChecklistItem, deleteChecklistItem, type Task, type TaskComment, type TaskHistory, type TaskAttachment, type TimeEntry, type Client, type Department, type User as UserT, type TaskCategory, type PipelineStage, type ChecklistItem } from '../lib/api'
 import { isDriveUrl, toDriveEmbedUrl } from '../lib/drive'
-import { ArrowLeft, Building2, Clock, User, ExternalLink, CheckCircle, XCircle, Send, MessageCircle, GitBranch, Paperclip, Eye, Edit3, Save, X, Plus, AlertTriangle, Layers, ChevronRight, ChevronDown, Video, Trash2, FileText } from 'lucide-react'
+import { ArrowLeft, Building2, Clock, User, ExternalLink, CheckCircle, XCircle, Send, MessageCircle, GitBranch, Paperclip, Eye, Edit3, Save, X, Plus, AlertTriangle, Layers, ChevronRight, ChevronDown, Video, Trash2, FileText, GripVertical } from 'lucide-react'
 import { useToast } from '../components/Toast'
 import AssigneesMultiSelect from '../components/AssigneesMultiSelect'
 
@@ -98,6 +98,22 @@ export default function TaskDetail() {
       await deleteChecklistItem(item.id)
       setChecklist(prev => prev.filter(i => i.id !== item.id))
     } catch (err: any) { toast(err.message || 'Erro', 'error') }
+  }
+
+  // Drag & drop reorder — armazena indice sendo arrastado + indice de hover
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
+  const handleChecklistDrop = async (targetIdx: number) => {
+    if (dragIdx === null || dragIdx === targetIdx) { setDragIdx(null); setDragOverIdx(null); return }
+    const reordered = [...checklist]
+    const [moved] = reordered.splice(dragIdx, 1)
+    reordered.splice(targetIdx, 0, moved)
+    setChecklist(reordered)
+    setDragIdx(null); setDragOverIdx(null)
+    // Persiste novas posicoes (position sequencial 1..N)
+    try {
+      await Promise.all(reordered.map((item, i) => updateChecklistItem(item.id, { position: i + 1 } as any)))
+    } catch (err: any) { toast(err?.message || 'Erro ao salvar ordem', 'error') }
   }
 
   useEffect(() => {
@@ -806,8 +822,30 @@ export default function TaskDetail() {
                 </div>
               )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {checklist.map(item => (
-                  <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, background: item.done ? 'rgba(52,199,89,0.05)' : 'rgba(255,255,255,0.02)', border: `1px solid ${item.done ? 'rgba(52,199,89,0.15)' : 'rgba(255,255,255,0.05)'}`, transition: 'background 0.15s' }}>
+                {checklist.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    draggable={canEdit}
+                    onDragStart={() => setDragIdx(idx)}
+                    onDragOver={e => { e.preventDefault(); if (dragIdx !== null && dragOverIdx !== idx) setDragOverIdx(idx) }}
+                    onDragLeave={() => { if (dragOverIdx === idx) setDragOverIdx(null) }}
+                    onDrop={() => handleChecklistDrop(idx)}
+                    onDragEnd={() => { setDragIdx(null); setDragOverIdx(null) }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6,
+                      background: dragOverIdx === idx && dragIdx !== idx ? 'rgba(255,179,0,0.10)'
+                        : item.done ? 'rgba(52,199,89,0.05)' : 'rgba(255,255,255,0.02)',
+                      border: `1px solid ${dragOverIdx === idx && dragIdx !== idx ? 'rgba(255,179,0,0.45)'
+                        : item.done ? 'rgba(52,199,89,0.15)' : 'rgba(255,255,255,0.05)'}`,
+                      opacity: dragIdx === idx ? 0.4 : 1,
+                      transition: 'background 0.15s, opacity 0.15s',
+                    }}
+                  >
+                    {canEdit && (
+                      <span style={{ cursor: 'grab', color: '#6B6580', display: 'flex', alignItems: 'center', flexShrink: 0 }} title="Arraste pra reordenar">
+                        <GripVertical size={14} />
+                      </span>
+                    )}
                     <input
                       type="checkbox"
                       checked={!!item.done}
