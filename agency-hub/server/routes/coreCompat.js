@@ -8,8 +8,10 @@ import { authenticate } from '../middleware/auth.js'
 
 const router = Router()
 
-// Autentica so as rotas deste router (nao vaza pro resto de /api/*)
-router.use(authenticate)
+// IMPORTANTE: NAO usar router.use(authenticate) global — Express roda middlewares
+// do router mesmo em requests que caem em rotas irmas do mesmo prefixo /api/.
+// Aplicamos authenticate INLINE em cada rota abaixo, garantindo que /api/public/*
+// (rotas publicas registradas com app.get) fiquem livres do middleware.
 
 // Tabela pra guardar config personalizada por conta Meta (accountId = string do id da conta Meta)
 db.exec(`
@@ -23,7 +25,7 @@ db.exec(`
 
 // ─── Config de dashboard ─────────────────────────────────────
 // GET config atual
-router.get('/dashboard/config/:accountId', (req, res) => {
+router.get('/dashboard/config/:accountId', authenticate, (req, res) => {
   const row = db.prepare('SELECT config, public_slug FROM dashboard_config WHERE account_id = ?').get(req.params.accountId)
   if (!row) return res.json({ config: null, public_slug: null })
   let config
@@ -32,7 +34,7 @@ router.get('/dashboard/config/:accountId', (req, res) => {
 })
 
 // PUT config (upsert)
-router.put('/dashboard/config/:accountId', (req, res) => {
+router.put('/dashboard/config/:accountId', authenticate, (req, res) => {
   const cfg = JSON.stringify(req.body?.config ?? req.body ?? {})
   db.prepare(`
     INSERT INTO dashboard_config (account_id, config, updated_at)
@@ -43,7 +45,7 @@ router.put('/dashboard/config/:accountId', (req, res) => {
 })
 
 // Publicar (gera slug simples). NAO expoe rota publica ainda — so guarda o slug.
-router.post('/dashboard/config/:accountId/publish', (req, res) => {
+router.post('/dashboard/config/:accountId/publish', authenticate, (req, res) => {
   const slug = Math.random().toString(36).slice(2, 10)
   db.prepare(`
     INSERT INTO dashboard_config (account_id, config, public_slug, updated_at)
@@ -54,7 +56,7 @@ router.post('/dashboard/config/:accountId/publish', (req, res) => {
 })
 
 // Despublicar
-router.delete('/dashboard/config/:accountId/publish', (req, res) => {
+router.delete('/dashboard/config/:accountId/publish', authenticate, (req, res) => {
   db.prepare('UPDATE dashboard_config SET public_slug = NULL, updated_at = datetime(\'now\', \'-3 hours\') WHERE account_id = ?').run(req.params.accountId)
   res.json({ ok: true })
 })
@@ -62,22 +64,22 @@ router.delete('/dashboard/config/:accountId/publish', (req, res) => {
 // ─── Meta sync stub ──────────────────────────────────────────
 // O Hub nao mantem cache de insights Meta (bate direto na API a cada req),
 // entao sync eh no-op. Retorna sucesso pra UI nao dar erro no botao.
-router.post('/meta/sync/:accountId', (req, res) => {
+router.post('/meta/sync/:accountId', authenticate, (req, res) => {
   res.json({ ok: true, synced: 0, message: 'Hub nao usa cache, sync no-op' })
 })
 
 // Status do cache — retorna sempre 'live' (sem cache)
-router.get('/meta/cached/accounts/:accountId/status', (req, res) => {
+router.get('/meta/cached/accounts/:accountId/status', authenticate, (req, res) => {
   res.json({ from: 'live', updated: null })
 })
 
 // Cache clear no-op
-router.post('/cache/clear', (req, res) => {
+router.post('/cache/clear', authenticate, (req, res) => {
   res.json({ ok: true, cleared: 0 })
 })
 
 // Hub refresh no-op (era pra Core puxar do Hub — nao se aplica dentro do Hub)
-router.post('/hub/refresh', (req, res) => {
+router.post('/hub/refresh', authenticate, (req, res) => {
   res.json({ ok: true })
 })
 
