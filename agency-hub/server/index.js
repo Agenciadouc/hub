@@ -50,7 +50,7 @@ app.use('/api/performance', authenticate, performanceRoutes)
 app.use('/api/task-templates', authenticate, taskTemplateRoutes)
 app.use('/api/settings', authenticate, settingsRoutes)
 app.use('/api/config', configRoutes)   // server-to-server via X-Core-Secret, NAO usa authenticate (JWT user)
-app.use('/api', authenticate, coreCompatRoutes)  // rotas espelho pros componentes vindos do Core
+app.use('/api', coreCompatRoutes)  // rotas espelho pros componentes vindos do Core (auth inline dentro do router)
 
 // Active timers for current user
 app.get('/api/my-timers', authenticate, (req, res) => {

@@ -4,8 +4,12 @@
 
 import { Router } from 'express'
 import db from '../db.js'
+import { authenticate } from '../middleware/auth.js'
 
 const router = Router()
+
+// Autentica so as rotas deste router (nao vaza pro resto de /api/*)
+router.use(authenticate)
 
 // Tabela pra guardar config personalizada por conta Meta (accountId = string do id da conta Meta)
 db.exec(`
